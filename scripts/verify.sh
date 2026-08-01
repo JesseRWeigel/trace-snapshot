@@ -132,24 +132,50 @@ fi
 
 echo
 echo "6b. the independent checker really is independent"
+# "Shares no code" is checked, not asserted. Three properties:
+#   1. it is a different language, so it cannot import the implementation at all
+#   2. it computes verdicts with its own functions rather than reading the JS answer
+#   3. no non-trivial source line is byte-identical to any line in src/, which is what a
+#      copy-pasted regex or comparison would look like
 if python3 - <<'PY'
 import pathlib, re, sys
-src = pathlib.Path("scripts/check_independent.py").read_text()
+chk = pathlib.Path("scripts/check_independent.py")
+src = chk.read_text()
 problems = []
-if re.search(r"\b(import|require|from)\b.*\bsrc[./]", src):
-    problems.append("it imports from src/")
+if chk.suffix != ".py":
+    problems.append("the checker is not a separate language from src/*.js")
+# A real Python import statement pulling in project code. Prose mentioning src/ is not that.
+for line in src.splitlines():
+    if re.match(r"^\s*(?:from|import)\s+", line) and re.search(r"\bsrc\b", line):
+        problems.append(f"it imports project code: {line.strip()!r}")
 if "subprocess" not in src:
     problems.append("it does not run the implementation as a subprocess, so it may be a copy")
-# It must recompute verdicts itself, not merely read the JavaScript's answer.
-if "def verdict" not in src or "def sequence" not in src:
-    problems.append("it has no verdict computation of its own")
-# And it must compare against BOTH the declaration and the implementation.
+for fn in ("def verdict", "def sequence", "def norm_string", "def key_of"):
+    if fn not in src:
+        problems.append(f"it has no {fn} of its own")
 if "src/match.js says" not in src:
     problems.append("it never compares its own verdict against the implementation's")
+
+def meaningful(line):
+    t = line.strip()
+    if len(t) < 25: return False
+    if t.startswith(("#", "//", "*", '"""')): return False
+    return True
+
+chk_lines = {l.strip() for l in src.splitlines() if meaningful(l)}
+js_lines = set()
+for f in sorted(pathlib.Path("src").glob("*.js")):
+    js_lines |= {l.strip() for l in f.read_text().splitlines() if meaningful(l)}
+shared = sorted(chk_lines & js_lines)
+print(f"    {len(chk_lines)} substantive lines in the checker, {len(js_lines)} in src/, {len(shared)} identical")
+for l in shared[:5]:
+    print(f"    shared: {l[:90]}")
+if shared:
+    problems.append(f"{len(shared)} source line(s) are byte-identical to src/")
 for p in problems: print(f"    {p}")
 sys.exit(1 if problems else 0)
 PY
-then ok "no import from src/, its own verdict function, compares against both the declaration and the implementation"
+then ok "different language, its own verdict functions, and no source line copied from src/"
 else bad "the independent checker is not independent"; fi
 
 echo

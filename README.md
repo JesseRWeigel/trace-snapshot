@@ -205,12 +205,132 @@ bash scripts/sabotage.sh            # break the engine five ways, require the su
 
 ## Status
 
-Pasted from a real run of `bash scripts/verify.sh`.
+Pasted from `bash scripts/verify.sh`, run from a clean shell. The five sabotage blocks are
+elided at the marked line because each is 15 lines of probe diff; everything else is verbatim.
 
 ```
-PENDING
-```
+1. toolchain
+  ok    node v24.13.0, python3 3.12.3
 
+2. no third party runtime dependencies, so the suite cannot silently skip on a missing install
+  ok    zero declared dependencies
+
+3. unit suite
+  ok    89 tests passed
+
+4. the fixture matrix, both failure modes on real fixture pairs
+    case                       strict   default  loose    should be
+    -------------------------  -------------------------------------
+    identical                  pass     pass     pass     tolerated
+    tolerated-volatile         fail     pass     pass     tolerated
+    regression-dropped-call    fail     fail     pass     regression
+    regression-wrong-path      fail     fail     pass     regression
+    regression-order           fail     fail     pass     regression
+    regression-extra-call      fail     fail     pass     regression
+    regression-argument-prose  fail     fail     pass     regression
+    
+    7 cases x 3 presets = 21 cells, 0 disagree with fixtures/cases.json
+  ok    every cell agrees with the expectation declared in fixtures/cases.json
+
+4b. the two failure modes are actually present, not merely possible
+    too strict: tolerated-volatile   too loose: regression-dropped-call
+    2 tolerated pairs, 5 regression pairs, default catches 5/5
+  ok    a tolerated pair fails under strict, and a caught regression passes under loose
+
+5. negative control: a corrupted fixture must make check 4 fail
+  ok    a corrupted fixture is caught: 1 cell(s) disagree
+
+6. an independent re-derivation, in Python, sharing no code with src/
+    independently recomputed 21 matrix cells across 7 fixture pairs
+    independently counted 89 passing tests from the TAP stream
+    INDEPENDENT CHECK OK
+  ok    the independent implementation agrees on every cell
+
+6b. the independent checker really is independent
+    97 substantive lines in the checker, 526 in src/, 0 identical
+  ok    different language, its own verdict functions, and no source line copied from src/
+
+7. real Claude Code transcripts
+    corpus: 700 session files under ~/.claude/projects, 10 with at least 12 tool calls examined
+            6362 real tool calls, 5757 batches, 520 of them holding more than one call, 3266 prose blocks, 0 unparseable lines
+    
+    benign mutation rewrote 5318 volatile values and reversed 520 parallel batches
+      ok    10/10 sessions: default preset tolerates the benign mutation
+      ok    10/10 sessions: strict preset rejects it, so the mutation was real
+      ok    10/10 sessions: removing one real tool call is caught as a missing call
+      note  the loose preset passed 10/10 of those same dropped-call runs
+      ok    10/10 sessions: changing one real argument value is caught
+    
+    normaliser hits across 14694 real argument leaf values:
+      home-path              2486  16.92%
+      tmp-path               1268  8.63%
+      uuid                    651  4.43%
+      ephemeral-port          173  1.18%
+      time-valued-number      158  1.08%
+      hex-digest               13  0.09%
+      iso-timestamp            11  0.07%
+      epoch-millis              0  0.00%
+    
+    REAL DATA OK
+  ok    the matcher behaves correctly on real recorded agent runs
+
+8. the CLI is usable end to end on a real transcript
+    2230 tool calls in 2127 batches, 1487 prose blocks, 0 unparseable lines -> /tmp/tmp.wnnIlKsyG0/real.trace.json
+  ok    extracted 2230 tool calls and the trace matches itself under the strictest preset
+
+9. the fixtures on disk are the ones the generator produces
+  ok    committed fixtures match scripts/make_fixtures.mjs
+
+10. docs/index.html is current and self-contained
+  ok    docs/index.html is current (19827 bytes)
+    19827 bytes, 3 tables, 8 code blocks
+  ok    doctype, charset, viewport, both dark-mode mechanisms, no remote assets, no home paths
+
+11. the page in a real browser
+      ok    loaded the right document (title: "trace-snapshot: snapshot testing for age"…)
+      ok    the inline script parsed and ran
+      ok    nothing overflows at a 390px phone (scrollWidth 390, viewport 390)
+      ok    nothing overflows at a 1280px desktop (scrollWidth 1265, viewport 1265)
+      ok    prefers-color-scheme switches the page (rgb(251, 250, 248) -> rgb(20, 21, 26))
+      ok    data-theme="light" overrides a dark media query
+      ok    data-theme="dark" overrides a light media query
+      ok    the theme button switches the page (rgb(251, 250, 248) -> rgb(20, 21, 26), label "light mode")
+      ok    3 scroll containers present, 3 scrolling at 390px
+    BROWSER CHECK OK
+  ok    the page renders, the inline script runs, and nothing overflows at 390px
+
+12. negative control: a broken page must fail the browser check
+    wide: caught -> 1 element(s) escape the page at a 390px phone: div right=916
+    broken-js: caught -> the inline script did not run (data-page-ready=null)
+  ok    both a 900px overflowing element and an unparseable inline script are caught
+
+13. nothing private or oversized is committed
+    42 tracked files, largest 19841 bytes
+  ok    no home path, no credential-shaped strings, no NUL bytes, nothing over 1 MB
+
+13b. the secret scan can actually see a NUL-containing file
+    byte scan found the planted token: True; grep -I found it: False
+  ok    the byte-level scan sees a token that grep -I skips
+
+14. sabotage: the core logic is attacked and the suite must notice
+    sabotage: five attacks on the matching engine and the normalisers
+    each one must (a) demonstrably change output and (b) make the suite fail
+    
+    [elided: 5 attack blocks, each showing the probe diff that proves the patch
+     took effect and the checks that then failed. Run bash scripts/sabotage.sh]
+    
+    5 attacks, 0 of them inconclusive or survived
+    SABOTAGE OK: every attack changed real output and every one was caught
+  ok    5 attacks all changed real output and all were caught
+
+15. the README describes this repository as it is now
+  ok    README.md generated block is current (2757 chars)
+    README is 11784 characters and claims 20 checks
+  ok    the README has a Status section whose pasted output matches this run
+
+20 passed, 0 failed
+VERIFY OK
+```
 ## Licence
 
 MIT.

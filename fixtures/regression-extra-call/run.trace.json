@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "source": "fixture",
+  "name": "strict-mode-audit",
+  "steps": [
+    {"args":{"pattern":"**/tsconfig*.json"},"group":0,"i":0,"tool":"Glob"},
+    {"args":{"file_path":"tsconfig.json"},"group":1,"i":1,"tool":"Read"},
+    {"args":{"file_path":"tsconfig.build.json"},"group":1,"i":2,"tool":"Read"},
+    {"args":{"file_path":"packages/app/tsconfig.json"},"group":1,"i":3,"tool":"Read"},
+    {"args":{"command":"node scripts/audit.mjs --out /tmp/audit-4f21ab9/strict.json --run 7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02 --at 2026-07-30T11:02:03Z","timeout":30000},"group":2,"i":4,"tool":"Bash"},
+    {"args":{"file_path":"/tmp/audit-4f21ab9/strict.json"},"group":3,"i":5,"tool":"Read"},
+    {"args":{"command":"rm -rf dist","timeout":30000},"group":4,"i":6,"tool":"Bash"},
+    {"args":{"content":"# Strict mode\n\nEnabled in packages/app only.\n","file_path":"docs/strict-mode.md"},"group":5,"i":7,"tool":"Write"}
+  ],
+  "prose": ["Let's locate the TypeScript configuration files first.","Reading them together saves a round trip.","Only packages/app enables strict. I will record the finding in the docs folder."]
+}

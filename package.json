@@ -1,0 +1,40 @@
+{
+  "name": "trace-snapshot",
+  "version": "0.1.0",
+  "description": "Snapshot testing for agent tool-call traces: assert on the shape of an agent run, tolerate the prose.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./matcher": "./src/matcher.js"
+  },
+  "bin": {
+    "trace-snapshot": "./src/cli.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.js",
+    "fixtures": "node scripts/make_fixtures.mjs",
+    "matrix": "node src/cli.js matrix",
+    "verify": "bash scripts/verify.sh"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "agent",
+    "llm",
+    "snapshot-testing",
+    "vitest",
+    "jest",
+    "ai-sdk",
+    "tool-calls"
+  ]
+}

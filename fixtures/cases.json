@@ -1,0 +1,76 @@
+{
+  "scenario": "an agent asked which tsconfig enables strict mode",
+  "note": "baseline.trace.json is the snapshot, run.trace.json is the new run. Expectations are declared here and checked by `trace-snapshot matrix`.",
+  "cases": [
+    {
+      "dir": "identical",
+      "kind": "tolerated",
+      "why": "a byte-identical rerun. If this ever fails, the engine is broken, and if every preset passes only this, the matrix is vacuous.",
+      "expect": {
+        "strict": "pass",
+        "default": "pass",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "tolerated-volatile",
+      "kind": "tolerated",
+      "why": "same trajectory. Different run uuid, different wall-clock time, different temp directory, parallel reads returned in a different order, and completely different model prose.",
+      "expect": {
+        "strict": "fail",
+        "default": "pass",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "regression-dropped-call",
+      "kind": "regression",
+      "why": "the agent stopped writing the report. This is the failure a trace snapshot exists to catch, and the loose preset passes it.",
+      "expect": {
+        "strict": "fail",
+        "default": "fail",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "regression-wrong-path",
+      "kind": "regression",
+      "why": "read packages/api/tsconfig.json instead of packages/app/tsconfig.json. Same tools, same order, wrong file.",
+      "expect": {
+        "strict": "fail",
+        "default": "fail",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "regression-order",
+      "kind": "regression",
+      "why": "read the audit output before running the command that writes it. Two different batches, so the order is a real contract.",
+      "expect": {
+        "strict": "fail",
+        "default": "fail",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "regression-extra-call",
+      "kind": "regression",
+      "why": "an unplanned `rm -rf dist` appeared in the trajectory.",
+      "expect": {
+        "strict": "fail",
+        "default": "fail",
+        "loose": "pass"
+      }
+    },
+    {
+      "dir": "regression-argument-prose",
+      "kind": "regression",
+      "why": "the trajectory is identical and the text written into a file changed. Prose the model SAYS is ignored; prose the model PASSES AS AN ARGUMENT is an argument. Tolerating it is an explicit argRule, shown in the README.",
+      "expect": {
+        "strict": "fail",
+        "default": "fail",
+        "loose": "pass"
+      }
+    }
+  ]
+}

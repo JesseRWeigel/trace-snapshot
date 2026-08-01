@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url';
 import { makeTrace, serialiseTrace } from '../src/trace.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIX = path.join(ROOT, 'fixtures');
+// An output directory can be given, so verify.sh can regenerate into a scratch dir and
+// diff, rather than writing into the tree it is judging.
+const FIX = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'fixtures');
 
 const RUN_A = '7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02';
 const RUN_B = 'e0417a55-9c3d-4d18-8f6e-2b7714aa9c31';
@@ -193,4 +195,4 @@ fs.writeFileSync(
     2,
   ) + '\n',
 );
-process.stdout.write(`wrote ${CASES.length} fixture pairs to fixtures/\n`);
+process.stdout.write(`wrote ${CASES.length} fixture pairs to ${path.relative(ROOT, FIX) || '.'}\n`);

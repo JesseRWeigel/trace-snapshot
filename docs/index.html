@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trace-snapshot: snapshot testing for agent tool-call traces</title>
+<meta name="description" content="Assert on the shape of an agent run, which tools were called in what order with what arguments, while tolerating the prose.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf8;
+    --fg: #1b1a18;
+    --muted: #5c5750;
+    --line: #ddd8d0;
+    --card: #ffffff;
+    --code-bg: #f3f0ea;
+    --pass-bg: #dff0dc;
+    --pass-fg: #1d5a24;
+    --fail-bg: #fadedb;
+    --fail-fg: #8a2b20;
+    --accent: #7a4de8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14151a;
+      --fg: #e9e7e3;
+      --muted: #a09b93;
+      --line: #2c2e36;
+      --card: #1b1d24;
+      --code-bg: #191b21;
+      --pass-bg: #16351d;
+      --pass-fg: #8fdba0;
+      --fail-bg: #3a1a18;
+      --fail-fg: #f0a49a;
+      --accent: #b79bff;
+    }
+  }
+  /* The toggle must beat the media query in both directions, so both are declared. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14151a; --fg: #e9e7e3; --muted: #a09b93; --line: #2c2e36; --card: #1b1d24;
+    --code-bg: #191b21; --pass-bg: #16351d; --pass-fg: #8fdba0; --fail-bg: #3a1a18;
+    --fail-fg: #f0a49a; --accent: #b79bff;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #fbfaf8; --fg: #1b1a18; --muted: #5c5750; --line: #ddd8d0; --card: #ffffff;
+    --code-bg: #f3f0ea; --pass-bg: #dff0dc; --pass-fg: #1d5a24; --fail-bg: #fadedb;
+    --fail-fg: #8a2b20; --accent: #7a4de8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 2rem 1rem 5rem; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  h1 { font-size: clamp(1.5rem, 5vw, 2.4rem); line-height: 1.15; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: clamp(1.15rem, 3.5vw, 1.5rem); margin: 2.75rem 0 .75rem; letter-spacing: -.01em; }
+  h3 { font-size: 1rem; margin: 0 0 .35rem; }
+  p, li { color: var(--fg); }
+  .lede { font-size: clamp(1rem, 2.6vw, 1.15rem); color: var(--muted); max-width: 46rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; font-size: .875em; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+        padding: .9rem 1rem; overflow-x: auto; font-size: .8125rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: .9rem; }
+  caption { text-align: left; padding: .75rem 1rem; color: var(--muted); font-size: .85rem; }
+  th, td { padding: .5rem .75rem; text-align: left; border-top: 1px solid var(--line); }
+  thead th { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-top: 0; }
+  tbody th { font-weight: 500; }
+  td.pass { background: var(--pass-bg); color: var(--pass-fg); font-weight: 600; }
+  td.fail { background: var(--fail-bg); color: var(--fail-fg); font-weight: 600; }
+  td.kind { color: var(--muted); font-size: .8rem; }
+  .presets { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+  .preset { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; min-width: 0; }
+  .preset h3 { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; color: var(--accent); }
+  .preset .verdict { margin: 0 0 .6rem; font-size: .85rem; color: var(--muted); }
+  .preset pre { margin: 0; font-size: .75rem; }
+  dl.why { margin: 0; }
+  dl.why dt { margin-top: .9rem; }
+  dl.why dd { margin: .15rem 0 0; color: var(--muted); font-size: .92rem; }
+  .callout { border-left: 3px solid var(--accent); padding: .1rem 0 .1rem 1rem; margin: 1.25rem 0; color: var(--muted); }
+  .callout strong { color: var(--fg); }
+  footer { margin-top: 3.5rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .85rem; }
+  button.theme {
+    position: absolute; top: 1rem; right: 1rem; font: inherit; font-size: .8rem;
+    background: var(--card); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 999px; padding: .35rem .8rem; cursor: pointer;
+  }
+  .rel { position: relative; }
+</style>
+
+<div class="wrap rel">
+<button class="theme" type="button" id="theme" aria-label="Switch colour theme">theme</button>
+
+<header>
+  <h1>Snapshot testing for agent tool-call traces</h1>
+  <p class="lede">
+    An agent run is non-deterministic in its prose and mostly deterministic in its shape: which
+    tools it called, in what order, with what arguments. Regressions live in the shape. This is a
+    <code>toMatchAgentTrace</code> matcher that asserts on the shape and ignores the prose.
+  </p>
+</header>
+
+<h2>The problem is where the line sits</h2>
+<p>
+  A snapshot that fails on every run gets deleted by its owner inside a week. A snapshot that
+  passes when the agent stopped calling a tool is worse, because it reports green forever. So the
+  matching rules are explicit, configurable, and demonstrated at both extremes rather than
+  described.
+</p>
+<p>
+  Below, 7 fixture pairs run against three presets. Each pair is one baseline trace
+  and one rerun that differs in exactly one way, so every row is a single-variable experiment.
+</p>
+
+
+<div class="scroll">
+<table>
+  <caption>Every fixture pair against every preset. Green is a pass.</caption>
+  <thead><tr><th scope="col">fixture pair</th><th scope="col">strict</th><th scope="col">default</th><th scope="col">loose</th><th scope="col">should be</th></tr></thead>
+  <tbody>
+    <tr><th scope="row"><code>identical</code></th><td class="pass">pass</td><td class="pass">pass</td><td class="pass">pass</td><td class="kind tolerated">tolerated</td></tr>
+    <tr><th scope="row"><code>tolerated-volatile</code></th><td class="fail">fail</td><td class="pass">pass</td><td class="pass">pass</td><td class="kind tolerated">tolerated</td></tr>
+    <tr><th scope="row"><code>regression-dropped-call</code></th><td class="fail">fail</td><td class="fail">fail</td><td class="pass">pass</td><td class="kind regression">regression</td></tr>
+    <tr><th scope="row"><code>regression-wrong-path</code></th><td class="fail">fail</td><td class="fail">fail</td><td class="pass">pass</td><td class="kind regression">regression</td></tr>
+    <tr><th scope="row"><code>regression-order</code></th><td class="fail">fail</td><td class="fail">fail</td><td class="pass">pass</td><td class="kind regression">regression</td></tr>
+    <tr><th scope="row"><code>regression-extra-call</code></th><td class="fail">fail</td><td class="fail">fail</td><td class="pass">pass</td><td class="kind regression">regression</td></tr>
+    <tr><th scope="row"><code>regression-argument-prose</code></th><td class="fail">fail</td><td class="fail">fail</td><td class="pass">pass</td><td class="kind regression">regression</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout">
+  <strong>Read the two end columns.</strong> <code>strict</code> fails
+  6 of 7 pairs, including
+  1 that
+  should have been tolerated: it rejects a rerun that only changed a run id, a wall clock and a
+  temp directory. <code>loose</code> passes all 7, including
+  5 genuine regressions, one of which is the agent no longer writing the
+  file it was asked to write. The loose preset is not merely permissive, it cannot fail at all,
+  and <code>scripts/check_independent.py</code> proves that by feeding it two traces with
+  nothing in common.
+</div>
+
+<h2>What each pair changes</h2>
+
+<dl class="why">
+  <dt><code>identical</code></dt>
+  <dd>a byte-identical rerun. If this ever fails, the engine is broken, and if every preset passes only this, the matrix is vacuous.</dd>
+  <dt><code>tolerated-volatile</code></dt>
+  <dd>same trajectory. Different run uuid, different wall-clock time, different temp directory, parallel reads returned in a different order, and completely different model prose.</dd>
+  <dt><code>regression-dropped-call</code></dt>
+  <dd>the agent stopped writing the report. This is the failure a trace snapshot exists to catch, and the loose preset passes it.</dd>
+  <dt><code>regression-wrong-path</code></dt>
+  <dd>read packages/api/tsconfig.json instead of packages/app/tsconfig.json. Same tools, same order, wrong file.</dd>
+  <dt><code>regression-order</code></dt>
+  <dd>read the audit output before running the command that writes it. Two different batches, so the order is a real contract.</dd>
+  <dt><code>regression-extra-call</code></dt>
+  <dd>an unplanned `rm -rf dist` appeared in the trajectory.</dd>
+  <dt><code>regression-argument-prose</code></dt>
+  <dd>the trajectory is identical and the text written into a file changed. Prose the model SAYS is ignored; prose the model PASSES AS AN ARGUMENT is an argument. Tolerating it is an explicit argRule, shown in the README.</dd>
+</dl>
+
+<h2>The three presets</h2>
+<div class="presets">
+  <article class="preset strict">
+    <h3>strict</h3>
+    <p class="verdict">passes 1 of 7 pairs</p>
+    <pre><code>{
+  &quot;order&quot;: &quot;strict&quot;,
+  &quot;args&quot;: &quot;exact&quot;,
+  &quot;normalisers&quot;: [],
+  &quot;argRules&quot;: [],
+  &quot;extra&quot;: &quot;fail&quot;,
+  &quot;missing&quot;: &quot;fail&quot;,
+  &quot;allowExtraKeys&quot;: false
+}</code></pre>
+  </article>
+  <article class="preset default">
+    <h3>default</h3>
+    <p class="verdict">passes 2 of 7 pairs</p>
+    <pre><code>{
+  &quot;order&quot;: &quot;groups&quot;,
+  &quot;args&quot;: &quot;normalised&quot;,
+  &quot;normalisers&quot;: [
+    &quot;uuid&quot;,
+    &quot;iso-timestamp&quot;,
+    &quot;epoch-millis&quot;,
+    &quot;time-valued-number&quot;,
+    &quot;tmp-path&quot;,
+    &quot;home-path&quot;,
+    &quot;hex-digest&quot;,
+    &quot;ephemeral-port&quot;
+  ],
+  &quot;argRules&quot;: [],
+  &quot;extra&quot;: &quot;fail&quot;,
+  &quot;missing&quot;: &quot;fail&quot;,
+  &quot;allowExtraKeys&quot;: false
+}</code></pre>
+  </article>
+  <article class="preset loose">
+    <h3>loose</h3>
+    <p class="verdict">passes 7 of 7 pairs</p>
+    <pre><code>{
+  &quot;order&quot;: &quot;any&quot;,
+  &quot;args&quot;: &quot;ignore&quot;,
+  &quot;normalisers&quot;: [],
+  &quot;argRules&quot;: [],
+  &quot;extra&quot;: &quot;allow&quot;,
+  &quot;missing&quot;: &quot;allow&quot;,
+  &quot;allowExtraKeys&quot;: true
+}</code></pre>
+  </article></div>
+
+<h2>Ordering is modelled, not assumed</h2>
+<p>
+  Some tool calls are genuinely order-independent and some are not, and the difference is
+  recoverable from the transcript rather than guessed. Every tool call the model emits in one
+  turn is a <em>batch</em>: the model chose all of them without seeing any of their results, so
+  it expressed no ordering between them. Between batches it did, because the second batch was
+  written after the first batch's results came back.
+</p>
+<p>
+  So the <code>groups</code> order policy sorts calls inside a batch and keeps the batches
+  ordered. Three parallel reads compare equal in any order. A write followed by a read of the
+  same file does not, because those are two batches. In the AI SDK a batch is one element of
+  <code>result.steps</code>; in a Claude Code session file it is one <code>requestId</code>.
+</p>
+<p>
+  The whole comparison then reduces to one idea: the order policy decides the granularity of
+  sorting (<code>strict</code> none, <code>groups</code> within a batch, <code>any</code>
+  everything), and the two resulting sequences are aligned with an LCS diff.
+</p>
+
+<h2>Arguments</h2>
+<p>
+  A file path matters. A UUID does not. A timestamp never does. A normaliser here does not delete
+  a value, it replaces one whose identity is meaningless with a placeholder that still asserts
+  the value's shape: after normalisation <code>&lt;uuid&gt;</code> means "a uuid was here", not
+  "anything was here". A run that stops passing a session id, or passes a number where a uuid
+  belongs, still fails. Anything that truly should not be compared uses the <code>ignore</code>
+  policy, which is opt-in per key and never implied.
+</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th scope="col">normaliser</th><th scope="col">why</th></tr></thead>
+  <tbody>
+    <tr><th scope="row"><code>uuid</code></th><td>a v1-v8 uuid identifies a run, not a behaviour; replaced by &lt;uuid&gt;, which still requires a uuid to be there</td></tr>
+    <tr><th scope="row"><code>iso-timestamp</code></th><td>wall-clock time never carries meaning across runs; a bare date is left alone because a date can be a real argument</td></tr>
+    <tr><th scope="row"><code>epoch-millis</code></th><td>13-digit epoch ms, range-restricted to 2001-2286 so ordinary large integers survive</td></tr>
+    <tr><th scope="row"><code>time-valued-number</code></th><td>a numeric value under a time-shaped key (elapsed, duration, ts) differs every run by construction</td></tr>
+    <tr><th scope="row"><code>tmp-path</code></th><td>the random temp root changes every run; the basename after it is kept because that is the part under test</td></tr>
+    <tr><th scope="row"><code>home-path</code></th><td>an absolute home path is both machine-specific and personal information; collapsed to ~</td></tr>
+    <tr><th scope="row"><code>hex-digest</code></th><td>a 32+ char lowercase hex digest is content-derived; case-sensitive so base64 blobs are not swept up</td></tr>
+    <tr><th scope="row"><code>ephemeral-port</code></th><td>a loopback port is assigned by the OS; the host is kept so a change of host still fails</td></tr>
+  </tbody>
+</table>
+</div>
+<p>These are available and off by default, each for a stated reason:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th scope="col">normaliser</th><th scope="col">why</th></tr></thead>
+  <tbody>
+    <tr><th scope="row"><code>epoch-seconds</code></th><td>opt-in: 10-digit epoch seconds. Off by default because it collides with ordinary integers such as byte counts</td></tr>
+    <tr><th scope="row"><code>short-sha</code></th><td>opt-in: 7-12 char lowercase hex. Off by default because it matches CSS colours and words like deadbeef</td></tr>
+    <tr><th scope="row"><code>line-numbers</code></th><td>opt-in: file:line:col suffixes, for suites where edits shift line numbers constantly</td></tr>
+    <tr><th scope="row"><code>all-numbers</code></th><td>opt-in and deliberately blunt: every bare integer becomes &lt;num&gt;. Included so the &quot;too loose&quot; end of the dial is a real setting, not a straw man</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>What a divergence looks like</h2>
+<p>The same rerun, under <code>default</code>. It changed a run id, a timestamp, a temp directory, the order of three parallel reads, and all of the prose:</p>
+<pre><code>trace matches  7 calls aligned, order=groups args=normalised</code></pre>
+<p>Under <code>strict</code>, the same rerun:</p>
+<pre><code>trace diverged  5 problems  (order=strict args=exact extra=fail missing=fail)
+  first divergence: Read moved relative to the snapshot
+  4 matched, 0 changed, 2 missing, 2 extra, 1 moved  (snapshot 7 calls, run 7)
+
+  [0] Glob pattern=**/tsconfig*.json
++ [1] Read file_path=packages/app/tsconfig.json   (moved)
+  [1] Read file_path=tsconfig.json
+  [2] Read file_path=tsconfig.build.json
+- [3] Read file_path=packages/app/tsconfig.json   (moved, present elsewhere)
+- [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (snapshot expected this call)
+- [5] Read file_path=/tmp/audit-4f21ab9/strict.json   (snapshot expected this call)
++ [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (not in snapshot)
++ [5] Read file_path=/tmp/audit-b7e0c31/strict.json   (not in snapshot)
+  [6] Write content=# Strict mode
+
+Enabled in packages/app … file_path=docs/strict-mode.md
+
+  prose was not compared. Set UPDATE_TRACE_SNAPSHOTS=1 to accept this run.</code></pre>
+<p>And a real regression under <code>default</code>, an agent that read a report before running the command that writes it:</p>
+<pre><code>trace diverged  1 problem  (order=groups args=normalised extra=fail missing=fail)
+  first divergence: Bash moved relative to the snapshot
+  6 matched, 0 changed, 0 missing, 0 extra, 1 moved  (snapshot 7 calls, run 7)
+  calls are listed in batch order, sorted inside each batch, which is the order this preset compares
+
+  … 2 matching calls
+  [2] Read file_path=tsconfig.build.json
+  [1] Read file_path=tsconfig.json
+- [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (moved, present elsewhere)
+  [5] Read file_path=/tmp/audit-4f21ab9/strict.json
++ [5] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (moved)
+  [6] Write content=# Strict mode
+
+Enabled in packages/app … file_path=docs/strict-mode.md
+
+  prose was not compared. Set UPDATE_TRACE_SNAPSHOTS=1 to accept this run.</code></pre>
+
+<h2>Using it</h2>
+<pre><code>import { expect, test } from 'vitest';
+import { toMatchAgentTrace, createRecorder } from 'trace-snapshot';
+
+expect.extend({ toMatchAgentTrace });
+
+test('the research agent still reads before it writes', async () =&gt; {
+  const rec = createRecorder();
+  await generateText({
+    model,
+    tools: rec.wrapTools(tools),
+    onStepFinish: rec.stepBoundary,
+    prompt: 'which tsconfig enables strict mode?',
+  });
+
+  expect(rec.trace()).toMatchAgentTrace('strict-mode-audit');
+});</code></pre>
+<p>
+  The snapshot lands in <code>__traces__/strict-mode-audit.trace.json</code> next to the test.
+  <code>UPDATE_TRACE_SNAPSHOTS=1</code> accepts a new run. Under <code>CI</code> a missing
+  snapshot is a failure rather than a self-written green baseline, because a snapshot created by
+  the run it is meant to check asserts nothing.
+</p>
+<p>Tolerating a specific volatile field is an explicit rule, not a global loosening:</p>
+<pre><code>expect(rec.trace()).toMatchAgentTrace('strict-mode-audit', {
+  argRules: [
+    { tool: 'Write', key: 'content', policy: 'type', type: 'string' },
+    { tool: 'Bash', key: 'command', policy: 'regex', pattern: '^git ' },
+    { key: '/^tmp_/', policy: 'ignore' },
+  ],
+});</code></pre>
+
+<footer>
+  <p>
+    MIT. Zero runtime dependencies. Built with <code>node scripts/build_page.mjs</code>; every
+    number and every diff on this page is produced by running the library, not typed in.
+  </p>
+</footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('theme');
+    var stored = null;
+    try { stored = localStorage.getItem('trace-snapshot-theme'); } catch (e) { stored = null; }
+    if (stored === 'dark' || stored === 'light') root.setAttribute('data-theme', stored);
+    function current() {
+      var set = root.getAttribute('data-theme');
+      if (set) return set;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function label() { btn.textContent = current() === 'dark' ? 'light mode' : 'dark mode'; }
+    btn.addEventListener('click', function () {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('trace-snapshot-theme', next); } catch (e) {}
+      label();
+    });
+    label();
+    // Something the script must have produced, so a page that failed to parse is detectable.
+    root.setAttribute('data-page-ready', 'trace-snapshot');
+  })();
+</script>
+</html>

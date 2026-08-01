@@ -1,5 +1,7 @@
 # trace-snapshot
 
+**[Open the live page](https://jesserweigel.github.io/trace-snapshot/)**
+
 Snapshot testing for agent tool-call traces. A `toMatchAgentTrace` matcher for Vitest and Jest
 that asserts on the **shape** of an agent run, which tools were called, in what order, with what
 arguments, and ignores the model's prose entirely.
@@ -349,3 +351,5 @@ VERIFY OK
 ## Licence
 
 MIT.
+
+Part of [722 things to build](https://github.com/JesseRWeigel/722-things-to-build).

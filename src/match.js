@@ -213,15 +213,23 @@ export function matchTrace(actual, expected, configInput = {}) {
   ops = merged;
 
   // A delete whose key reappears as an insert elsewhere is a move, not a loss plus a gain.
-  const insertKeys = new Map();
+  //
+  // The pairing is one to one and consumes as it goes. An earlier version kept one index per
+  // key, so a run that dropped one of two identical calls and moved the other marked BOTH
+  // deletes as moved: the genuinely missing call disappeared from the count and was reported
+  // as an ordering change. With `missing: 'allow'` that turned a tolerated drop into a failure.
+  const insertsByKey = new Map();
   ops.forEach((o, idx) => {
-    if (o.op === 'insert') insertKeys.set(o.a.key, idx);
+    if (o.op !== 'insert') return;
+    if (!insertsByKey.has(o.a.key)) insertsByKey.set(o.a.key, []);
+    insertsByKey.get(o.a.key).push(idx);
   });
   for (const o of ops) {
-    if (o.op === 'delete' && insertKeys.has(o.e.key)) {
-      o.moved = true;
-      ops[insertKeys.get(o.e.key)].moved = true;
-    }
+    if (o.op !== 'delete') continue;
+    const queue = insertsByKey.get(o.e.key);
+    if (!queue || queue.length === 0) continue;
+    o.moved = true;
+    ops[queue.shift()].moved = true;
   }
 
   const problems = [];

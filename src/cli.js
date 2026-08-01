@@ -32,7 +32,7 @@ function flag(argv, name, fallback = undefined) {
 }
 
 function cmdExtract(argv) {
-  const file = argv.find((a) => !a.startsWith('-') && a !== flag(argv, '-o'));
+  const file = positionalArgs(argv)[0];
   if (!file) die('extract needs a transcript path');
   if (!fs.existsSync(file)) die(`no such file: ${file}`);
   const trace = fromClaudeTranscript(fs.readFileSync(file, 'utf8'), { name: path.basename(file, '.jsonl') });
@@ -68,12 +68,23 @@ function readTrace(p) {
   return parseTrace(fs.readFileSync(p, 'utf8'), p);
 }
 
-function cmdMatch(argv) {
-  const positional = [];
+// Flags that consume the next argument. The earlier version skipped the following argument
+// after ANY `--flag`, so `match a.json b.json --no-colour --preset default` swallowed
+// `--preset` and silently compared with the wrong config. Only value-taking flags skip.
+const VALUE_FLAGS = new Set(['--preset', '--config', '-o', '--limit', '--min-calls']);
+
+export function positionalArgs(argv) {
+  const out = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) { i++; continue; }
-    positional.push(argv[i]);
+    if (VALUE_FLAGS.has(argv[i])) { i++; continue; }
+    if (argv[i].startsWith('-')) continue;
+    out.push(argv[i]);
   }
+  return out;
+}
+
+function cmdMatch(argv) {
+  const positional = positionalArgs(argv);
   if (positional.length < 2) die('match needs <run.json> <snapshot.json>');
   const actual = readTrace(positional[0]);
   const expected = readTrace(positional[1]);
@@ -89,7 +100,7 @@ function loadCases(dir) {
 }
 
 function cmdMatrix(argv) {
-  const dir = argv.find((a) => !a.startsWith('-')) ?? path.join(ROOT, 'fixtures');
+  const dir = positionalArgs(argv)[0] ?? path.join(ROOT, 'fixtures');
   const spec = loadCases(dir);
   const rows = [];
   let mismatches = 0;
@@ -147,7 +158,8 @@ function* walkJsonl(target) {
 }
 
 function cmdMeasure(argv) {
-  const targets = argv.filter((a) => !a.startsWith('-'));
+  // `measure dir --limit 5` used to treat "5" as a second directory and die on it.
+  const targets = positionalArgs(argv);
   if (targets.length === 0) die('measure needs a directory or file');
   const limit = Number(flag(argv, '--limit', '40'));
   const minCalls = Number(flag(argv, '--min-calls', '5'));

@@ -48,7 +48,7 @@ than described.
 
 <!-- generated:begin -->
 
-**89 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **8 normalisers** are on by default and **4** are available and off.
+**92 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **8 normalisers** are on by default and **4** are available and off.
 
 | case | `strict` | `default` | `loose` | should be |
 |---|---|---|---|---|
@@ -179,6 +179,13 @@ bash scripts/sabotage.sh            # break the engine five ways, require the su
   the default preset must accept it while the strict preset must reject it. That second half is
   the control: if strict also passed, the mutation was a no-op and the first half proved nothing.
   Then one call is removed and the default preset must catch it.
+- **Two real defects, found by attacking this code after it was already green**, both pinned in
+  `tests/test_regressions.js` and both confirmed by reverting the fix and watching the test go
+  red. (1) The move detector kept one index per key, so a run that dropped one of two identical
+  calls and moved the other marked both deletes as moved: the missing call vanished from the
+  count and was reported as an ordering change instead. (2) The CLI argument parser skipped the
+  argument after any `--flag`, so `match a b --no-colour --preset strict` swallowed `--preset`
+  and compared with the default config while the caller believed otherwise.
 - **A real browser.** `scripts/browser_check.mjs` drives Chrome over the DevTools Protocol using
   Node's built-in WebSocket, asserts page identity before measuring, checks an attribute the
   inline script must have set, and walks the DOM for elements escaping the viewport at 390px
@@ -216,7 +223,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    zero declared dependencies
 
 3. unit suite
-  ok    89 tests passed
+  ok    92 tests passed
 
 4. the fixture matrix, both failure modes on real fixture pairs
     case                       strict   default  loose    should be
@@ -242,31 +249,31 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 
 6. an independent re-derivation, in Python, sharing no code with src/
     independently recomputed 21 matrix cells across 7 fixture pairs
-    independently counted 89 passing tests from the TAP stream
+    independently counted 92 passing tests from the TAP stream
     INDEPENDENT CHECK OK
   ok    the independent implementation agrees on every cell
 
 6b. the independent checker really is independent
-    97 substantive lines in the checker, 526 in src/, 0 identical
+    97 substantive lines in the checker, 533 in src/, 0 identical
   ok    different language, its own verdict functions, and no source line copied from src/
 
 7. real Claude Code transcripts
-    corpus: 700 session files under ~/.claude/projects, 10 with at least 12 tool calls examined
-            6362 real tool calls, 5757 batches, 520 of them holding more than one call, 3266 prose blocks, 0 unparseable lines
+    corpus: 701 session files under ~/.claude/projects, 10 with at least 12 tool calls examined
+            6374 real tool calls, 5768 batches, 521 of them holding more than one call, 3269 prose blocks, 0 unparseable lines
     
-    benign mutation rewrote 5318 volatile values and reversed 520 parallel batches
+    benign mutation rewrote 5328 volatile values and reversed 521 parallel batches
       ok    10/10 sessions: default preset tolerates the benign mutation
       ok    10/10 sessions: strict preset rejects it, so the mutation was real
       ok    10/10 sessions: removing one real tool call is caught as a missing call
       note  the loose preset passed 10/10 of those same dropped-call runs
       ok    10/10 sessions: changing one real argument value is caught
     
-    normaliser hits across 14694 real argument leaf values:
-      home-path              2486  16.92%
-      tmp-path               1268  8.63%
-      uuid                    651  4.43%
-      ephemeral-port          173  1.18%
-      time-valued-number      158  1.08%
+    normaliser hits across 14732 real argument leaf values:
+      home-path              2494  16.93%
+      tmp-path               1269  8.61%
+      uuid                    652  4.43%
+      ephemeral-port          174  1.18%
+      time-valued-number      158  1.07%
       hex-digest               13  0.09%
       iso-timestamp            11  0.07%
       epoch-millis              0  0.00%
@@ -275,7 +282,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    the matcher behaves correctly on real recorded agent runs
 
 8. the CLI is usable end to end on a real transcript
-    2230 tool calls in 2127 batches, 1487 prose blocks, 0 unparseable lines -> /tmp/tmp.wnnIlKsyG0/real.trace.json
+    2230 tool calls in 2127 batches, 1487 prose blocks, 0 unparseable lines -> /tmp/tmp.fCTlrRlLR6/real.trace.json
   ok    extracted 2230 tool calls and the trace matches itself under the strictest preset
 
 9. the fixtures on disk are the ones the generator produces
@@ -325,7 +332,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 
 15. the README describes this repository as it is now
   ok    README.md generated block is current (2757 chars)
-    README is 11784 characters and claims 20 checks
+    README is 18449 characters and claims 20 checks
   ok    the README has a Status section whose pasted output matches this run
 
 20 passed, 0 failed

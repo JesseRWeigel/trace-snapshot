@@ -68,6 +68,11 @@ class Cdp {
       this.handlers.get(method).push(resolve);
     });
   }
+  /** A handler that keeps firing, for event streams rather than one-shot waits. */
+  on(method, cb) {
+    if (!this.handlers.has(method)) this.handlers.set(method, []);
+    this.handlers.get(method).push(cb);
+  }
   async evaluate(expression) {
     const r = await this.send('Runtime.evaluate', {
       expression: `(() => { ${expression} })()`,
@@ -174,6 +179,22 @@ async function main() {
 
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    await cdp.send('Log.enable');
+    // Subscribed BEFORE navigation, because an exception during parse or first paint is
+    // exactly the failure this is for. An earlier version read `window.__errors`, which
+    // nothing ever wrote to, so the assertion could not fire. A check that cannot fail is
+    // worse than no check, because it reports the same green as one that ran.
+    const consoleErrors = [];
+    cdp.on('Runtime.exceptionThrown', (p) => {
+      const d = p?.exceptionDetails;
+      consoleErrors.push(`uncaught: ${d?.exception?.description ?? d?.text ?? 'unknown'}`.split('\n')[0]);
+    });
+    cdp.on('Log.entryAdded', (p) => {
+      if (p?.entry?.level === 'error') consoleErrors.push(`log: ${p.entry.text}`);
+    });
+    cdp.on('Runtime.consoleAPICalled', (p) => {
+      if (p?.type === 'error') consoleErrors.push(`console.error: ${(p.args ?? []).map((a) => a.value ?? a.description).join(' ')}`);
+    });
     const loaded = cdp.once('Page.loadEventFired');
     await cdp.send('Page.navigate', { url: `file://${PAGE}` });
     await Promise.race([loaded, new Promise((r) => setTimeout(r, 8000))]);
@@ -190,8 +211,6 @@ async function main() {
     const ready = await cdp.evaluate("return document.documentElement.getAttribute('data-page-ready');");
     if (ready !== 'trace-snapshot') bad(`the inline script did not run (data-page-ready=${JSON.stringify(ready)})`);
     else ok('the inline script parsed and ran');
-
-    const consoleErrors = await cdp.evaluate('return window.__errors || [];');
 
     for (const [w, h, label] of [[390, 844, 'a 390px phone'], [1280, 900, 'a 1280px desktop']]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -252,7 +271,8 @@ async function main() {
     else if (scrollers.scrollable === 0) bad('no container is actually scrolling at 390px, so the wide-content path is not exercised');
     else ok(`${scrollers.n} scroll containers present, ${scrollers.scrollable} scrolling at 390px`);
 
-    if (consoleErrors.length) bad(`console errors: ${consoleErrors.join(', ')}`);
+    if (consoleErrors.length) bad(`${consoleErrors.length} page error(s): ${consoleErrors.slice(0, 4).join(' | ')}`);
+    else ok('no uncaught exceptions and no console errors during load or interaction');
   } catch (e) {
     bad(`browser check threw: ${e.message}`);
   } finally {

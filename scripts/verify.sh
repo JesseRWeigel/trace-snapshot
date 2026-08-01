@@ -286,9 +286,15 @@ w = pathlib.Path(sys.argv[1])
 (w / "wide.html").write_text(h.replace("<header>", '<div style="width:900px;height:4px"></div><header>'), encoding="utf-8")
 # (b) an unbalanced parenthesis, so the inline script never parses
 (w / "broken-js.html").write_text(h.replace("(function () {", "(function () { (", 1), encoding="utf-8")
+# (c) a script that parses and runs but throws at runtime. Caught by a different assertion
+# than (b): the page still sets data-page-ready, so only the error stream sees this one.
+(w / "throws.html").write_text(
+    h.replace("var root = document.documentElement;",
+              "var root = document.documentElement; window.setTimeout(function(){ nope.boom(); }, 0);", 1),
+    encoding="utf-8")
 PY
 nc_fails=0
-for probe in wide broken-js; do
+for probe in wide broken-js throws; do
   if TRACE_PAGE="$work/$probe.html" node scripts/browser_check.mjs >"$work/nc-$probe.txt" 2>&1; then
     printf '    %s: the browser check PASSED a page that is broken\n' "$probe"
     nc_fails=$((nc_fails + 1))
@@ -297,9 +303,9 @@ for probe in wide broken-js; do
   fi
 done
 if [ "$nc_fails" -eq 0 ]; then
-  ok "both a 900px overflowing element and an unparseable inline script are caught"
+  ok "an overflowing element, an unparseable script, and a runtime exception are all caught"
 else
-  bad "$nc_fails deliberately broken page(s) passed the browser check"
+  bad "$nc_fails of 3 deliberately broken pages passed the browser check"
 fi
 
 echo

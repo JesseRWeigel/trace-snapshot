@@ -186,6 +186,12 @@ bash scripts/sabotage.sh            # break the engine five ways, require the su
   count and was reported as an ordering change instead. (2) The CLI argument parser skipped the
   argument after any `--flag`, so `match a b --no-colour --preset strict` swallowed `--preset`
   and compared with the default config while the caller believed otherwise.
+- **A third defect, in the verification harness itself.** `browser_check.mjs` read
+  `window.__errors`, which nothing ever wrote to, so its console-error assertion could
+  never fire. It now subscribes to `Runtime.exceptionThrown`, `Runtime.consoleAPICalled`
+  and `Log.entryAdded` before navigation, and check 12 gained a third probe: a page whose
+  script parses and runs but throws at runtime. That probe fails the check, and did not
+  before the fix.
 - **A real browser.** `scripts/browser_check.mjs` drives Chrome over the DevTools Protocol using
   Node's built-in WebSocket, asserts page identity before measuring, checks an attribute the
   inline script must have set, and walks the DOM for elements escaping the viewport at 390px
@@ -258,21 +264,21 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    different language, its own verdict functions, and no source line copied from src/
 
 7. real Claude Code transcripts
-    corpus: 701 session files under ~/.claude/projects, 10 with at least 12 tool calls examined
-            6374 real tool calls, 5768 batches, 521 of them holding more than one call, 3269 prose blocks, 0 unparseable lines
+    corpus: 706 session files under ~/.claude/projects, 10 with at least 12 tool calls examined
+            6408 real tool calls, 5802 batches, 521 of them holding more than one call, 3281 prose blocks, 0 unparseable lines
     
-    benign mutation rewrote 5328 volatile values and reversed 521 parallel batches
+    benign mutation rewrote 5352 volatile values and reversed 521 parallel batches
       ok    10/10 sessions: default preset tolerates the benign mutation
       ok    10/10 sessions: strict preset rejects it, so the mutation was real
       ok    10/10 sessions: removing one real tool call is caught as a missing call
       note  the loose preset passed 10/10 of those same dropped-call runs
       ok    10/10 sessions: changing one real argument value is caught
     
-    normaliser hits across 14732 real argument leaf values:
-      home-path              2494  16.93%
-      tmp-path               1269  8.61%
-      uuid                    652  4.43%
-      ephemeral-port          174  1.18%
+    normaliser hits across 14821 real argument leaf values:
+      home-path              2506  16.91%
+      tmp-path               1275  8.60%
+      uuid                    658  4.44%
+      ephemeral-port          176  1.19%
       time-valued-number      158  1.07%
       hex-digest               13  0.09%
       iso-timestamp            11  0.07%
@@ -282,7 +288,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    the matcher behaves correctly on real recorded agent runs
 
 8. the CLI is usable end to end on a real transcript
-    2230 tool calls in 2127 batches, 1487 prose blocks, 0 unparseable lines -> /tmp/tmp.fCTlrRlLR6/real.trace.json
+    2230 tool calls in 2127 batches, 1487 prose blocks, 0 unparseable lines -> /tmp/tmp.DJWHOBEiAu/real.trace.json
   ok    extracted 2230 tool calls and the trace matches itself under the strictest preset
 
 9. the fixtures on disk are the ones the generator produces
@@ -303,16 +309,18 @@ elided at the marked line because each is 15 lines of probe diff; everything els
       ok    data-theme="dark" overrides a light media query
       ok    the theme button switches the page (rgb(251, 250, 248) -> rgb(20, 21, 26), label "light mode")
       ok    3 scroll containers present, 3 scrolling at 390px
+      ok    no uncaught exceptions and no console errors during load or interaction
     BROWSER CHECK OK
   ok    the page renders, the inline script runs, and nothing overflows at 390px
 
 12. negative control: a broken page must fail the browser check
     wide: caught -> 1 element(s) escape the page at a 390px phone: div right=916
     broken-js: caught -> the inline script did not run (data-page-ready=null)
-  ok    both a 900px overflowing element and an unparseable inline script are caught
+    throws: caught -> 1 page error(s): uncaught: ReferenceError: nope is not defined
+  ok    an overflowing element, an unparseable script, and a runtime exception are all caught
 
 13. nothing private or oversized is committed
-    42 tracked files, largest 19841 bytes
+    43 tracked files, largest 20078 bytes
   ok    no home path, no credential-shaped strings, no NUL bytes, nothing over 1 MB
 
 13b. the secret scan can actually see a NUL-containing file

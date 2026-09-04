@@ -15,10 +15,50 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+
+# THE RESTORE IS IN THE TRAP, AND THAT IS NOT A DETAIL. This harness edits the real source file in
+# place and copies it back when the attack is done. If the script never reaches that line the
+# sabotage stays on disk, and the repository is left with `if (true)` where a config check used to
+# be: every test red, and nothing to say why.
+#
+# It happened on 2026-09-04. A batch re-verifying a hundred repositories killed this run partway
+# through, the copy-back never ran, and src/match.js sat sabotaged in a clean-looking checkout
+# until six unit tests were traced back to it.
+#
+# INT and TERM as well as EXIT, because `timeout` sends TERM and the shell only runs an EXIT trap
+# for a signal it has a handler for. SIGKILL cannot be caught by anything, which is why the last
+# step of this script also asks git whether the tree came back unchanged.
+sabotaged=""
+restore_and_clean() {
+  if [ -n "$sabotaged" ] && [ -f "$work/orig" ]; then
+    cp "$work/orig" "$sabotaged" 2>/dev/null || true
+    printf '\n  restored %s on the way out\n' "$sabotaged" >&2
+  fi
+  rm -rf "$work"
+}
+
+# A SIGNAL HANDLER HAS TO END THE RUN, not just tidy up and hand control back. bash runs a TERM
+# handler and then CONTINUES the script, so a handler that restores the file and deletes $work
+# leaves the next attack copying its original into a directory that is gone: the patch applies,
+# the restore finds nothing to copy back, and the sabotage is still on disk at the end. That is
+# what the first version of this did, and killing it mid-run proved it: the handler ran, printed
+# that it had restored, and the tree was still modified afterwards.
+on_signal() {
+  restore_and_clean
+  printf '  interrupted; stopping rather than continuing with the next attack\n' >&2
+  exit 130
+}
+trap restore_and_clean EXIT
+trap on_signal INT TERM
 
 fails=0
 attacks=0
+
+# How the tree looked before any attack ran. Compared against the same reading at the end.
+TREE_BEFORE=""
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+  TREE_BEFORE="$(git status --porcelain -- src tests scripts 2>/dev/null)"
+fi
 
 # The probe for each attack, run before and after the patch. Must differ.
 probe_dropped()  { node src/cli.js match fixtures/regression-dropped-call/run.trace.json fixtures/regression-dropped-call/baseline.trace.json --preset default --no-colour 2>&1; }
@@ -49,6 +89,7 @@ run_attack() {
   printf '  target: %s\n' "$file"
 
   cp "$file" "$work/orig"
+  sabotaged="$file"
   local before after
   before="$("$probe")"
 
@@ -56,6 +97,7 @@ run_attack() {
     printf '  ABORT  the patch text was not found in %s, so nothing was sabotaged.\n' "$file"
     printf '         This proves nothing about the checks. Fix the attack, do not weaken the check.\n'
     cp "$work/orig" "$file"
+    sabotaged=""
     fails=$((fails + 1))
     return
   fi
@@ -65,6 +107,7 @@ run_attack() {
     printf '  ABORT  the patch applied but the probe output is byte-identical.\n'
     printf '         A no-op attack is not evidence of a weak check.\n'
     cp "$work/orig" "$file"
+    sabotaged=""
     fails=$((fails + 1))
     return
   fi
@@ -85,6 +128,7 @@ run_attack() {
     printf '  FAIL   could not restore %s\n' "$file"
     fails=$((fails + 1))
   fi
+  sabotaged=""
 }
 
 echo "sabotage: five attacks on the matching engine and the normalisers"
@@ -129,3 +173,23 @@ run_attack "an extra tool call is no longer reported" src/match.js probe_extra \
 printf '\n%d attacks, %d of them inconclusive or survived\n' "$attacks" "$fails"
 if [ "$fails" -ne 0 ]; then echo "SABOTAGE FAILED"; exit 1; fi
 echo "SABOTAGE OK: every attack changed real output and every one was caught"
+
+
+# THE LAST WORD IS GIT'S, NOT THIS SCRIPT'S. Every attack restores its file and checks the copy
+# back with cmp, and that still only proves each individual restore ran. Comparing the tree to how
+# this script FOUND it catches the case none of those checks can see: a restore that was skipped
+# because the script never reached it.
+#
+# BEFORE AND AFTER, NOT AGAINST HEAD. Asking whether anything is dirty would fail for anybody
+# running this with unsaved work, which is everybody who is editing the matcher, and a check that
+# fails for an ordinary reason is a check people learn to skip. The question is whether THIS SCRIPT
+# changed anything, so the answer is the difference between two readings.
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+  tree_after="$(git status --porcelain -- src tests scripts 2>/dev/null)"
+  if [ "$tree_after" != "$TREE_BEFORE" ]; then
+    printf '\nFAIL   this script changed the working tree and did not put it back.\n'
+    printf 'before:\n%s\nafter:\n%s\n' "$TREE_BEFORE" "$tree_after"
+    exit 1
+  fi
+  printf '\nthe working tree is exactly as this script found it\n'
+fi

@@ -24,7 +24,8 @@ import path from 'node:path';
 import { fromClaudeTranscript } from '../src/record.js';
 import { matchTrace } from '../src/match.js';
 import { makeTrace, groupsOf, canonicalJson } from '../src/trace.js';
-import { normaliserHits, DEFAULT_NORMALISERS } from '../src/normalise.js';
+import { normaliserHits, DEFAULT_NORMALISERS, normaliseValue, resolveNormalisers }
+  from '../src/normalise.js';
 
 const HOME = os.homedir();
 const CORPUS = process.env.TRACE_CORPUS ?? path.join(HOME, '.claude', 'projects');
@@ -66,12 +67,25 @@ const EPOCH = /\b1[0-9]{12}\b/g;
 const HOMEP = /(?:\/home|\/Users)\/[A-Za-z0-9._-]+/g;
 
 /** Rewrite volatile identity, counting what actually changed. */
+// A REPLACEMENT THE NORMALISER STILL ERASES. This used to be `sess${Math.floor(rand() * 1e7)}x`,
+// and when the draw came out small it produced names like sess62x. The tmp-path normaliser looks
+// for a digit with at least three characters after it, so sess62x is not a temporary path as far
+// as it is concerned: the original was normalised to <tmpdir> and the replacement was left as
+// itself, and a mutation that is supposed to be benign made a real session fail the default
+// preset. The test was wrong and the tool was right, which took a while to establish.
+//
+// The digits are padded so there is always a run long enough to match. `assertBenignIsBenign`
+// below checks that rather than trusting this comment.
+function fakeTmpName(rand) {
+  return `sess${String(Math.floor(rand() * 1e7)).padStart(8, '0')}x`;
+}
+
 function benignRewrite(value, counts, rand) {
   if (typeof value === 'string') {
     let s = value;
     s = s.replace(UUID, () => { counts.uuid++; return fakeUuid(rand); });
     s = s.replace(ISO, () => { counts.timestamp++; return new Date(1785000000000 + Math.floor(rand() * 1e9)).toISOString(); });
-    s = s.replace(TMP, (_m, pre) => { counts.tmp++; return `${pre}sess${Math.floor(rand() * 1e7)}x`; });
+    s = s.replace(TMP, (_m, pre) => { counts.tmp++; return `${pre}${fakeTmpName(rand)}`; });
     s = s.replace(EPOCH, () => { counts.epoch++; return String(1780000000000 + Math.floor(rand() * 1e9)); });
     // The most common volatile value in this corpus by a wide margin, at 17% of argument
     // leaves. Rewriting it is what keeps a session with no uuids from being a vacuous case.
@@ -159,6 +173,27 @@ if (!fs.existsSync(CORPUS)) {
 const files = listJsonl(CORPUS);
 const results = [];
 let checked = 0;
+// THE MUTATION MUST ONLY PRODUCE VALUES THE NORMALISERS ERASE, or a failure below says nothing
+// about the tool. Checked here rather than assumed, because assuming it is exactly the mistake
+// that made this script report a defect in src/ that was in this file.
+function assertBenignIsBenign() {
+  const r = rng(1);
+  const resolved = resolveNormalisers(DEFAULT_NORMALISERS);
+  const problems = [];
+  for (let i = 0; i < 5000; i += 1) {
+    const name = `/tmp/${fakeTmpName(r)}`;
+    if (normaliseValue(name, resolved) !== '<tmpdir>') problems.push(name);
+  }
+  if (problems.length) {
+    say(`  FAIL  the benign mutation generates temp names the normalisers do not erase, ` +
+        `${problems.length} of 5000, first ${problems[0]}`);
+    process.exitCode = 1;
+  } else {
+    say('  ok    every temp name the benign mutation can generate normalises to <tmpdir>');
+  }
+}
+assertBenignIsBenign();
+
 const totals = { calls: 0, batches: 0, parallelBatches: 0, prose: 0, malformed: 0, sessions: 0 };
 const normTotals = Object.fromEntries(DEFAULT_NORMALISERS.map((n) => [n, 0]));
 let argLeaves = 0;
@@ -211,6 +246,7 @@ for (const f of files) {
     counts,
     mutationApplied,
     benignPassesDefault: benignDefault.pass,
+    benignProblems: benignDefault.problems ?? [],
     benignFailsStrict: !benignStrict.pass,
     dropFailsDefault: !dropDefault.pass,
     dropProblemKinds: [...new Set(dropDefault.problems.map((p) => p.kind))],
@@ -263,7 +299,16 @@ say(`benign mutation rewrote ${totalRewrites} volatile values and reversed ${shu
 const benignOk = results.filter((r) => r.benignPassesDefault).length;
 if (benignOk !== results.length) {
   fail(`${results.length - benignOk} of ${results.length} real sessions FAILED the default preset after a benign mutation`);
-  for (const r of results.filter((x) => !x.benignPassesDefault)) say(`        ${r.file} (${r.calls} calls)`);
+  // WHAT IT COMPLAINED ABOUT, not just which file. A benign mutation is supposed to change nothing
+  // the default preset cares about, so a failure here means a normaliser missed a value shape or a
+  // batch was not treated as order-free. The file name alone cannot tell you which, and finding
+  // out meant editing this script, so the first two problems are printed.
+  for (const r of results.filter((x) => !x.benignPassesDefault)) {
+    say(`        ${r.file} (${r.calls} calls)`);
+    for (const p of (r.benignProblems ?? []).slice(0, 2)) {
+      say(`          ${p.kind}: ${String(p.message).split(HOME).join('~').slice(0, 150)}`);
+    }
+  }
 } else {
   say(`  ok    ${benignOk}/${results.length} sessions: default preset tolerates the benign mutation`);
 }

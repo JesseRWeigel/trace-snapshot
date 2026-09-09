@@ -3,9 +3,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { makeTrace } from '../src/trace.js';
 import { matchTrace } from '../src/match.js';
 import { main, positionalArgs } from '../src/cli.js';
+import { OPTIONAL_NORMALISERS } from '../src/normalise.js';
 
 const T = (steps) => makeTrace({ source: 'test', steps });
 const R = (g, p) => ({ group: g, tool: 'Read', args: { file_path: p } });
@@ -62,6 +66,53 @@ test('the normalisers report says the safe default compares every argument value
   }
 
   assert.match(writes.join(''), /on by default \(0\):\n  none; every argument value is compared/);
+});
+
+test('measure JSON reports available normaliser candidates without changing default fields', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-snapshot-measure-'));
+  const transcript = {
+    type: 'assistant',
+    requestId: 'req-1',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'update_customer',
+          input: {
+            customer_id: '7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02',
+            scheduled_at: '2026-07-30T11:02:03Z',
+          },
+        },
+      ],
+    },
+  };
+  fs.writeFileSync(path.join(dir, 'session.jsonl'), `${JSON.stringify(transcript)}\n`);
+
+  const writes = [];
+  const originalWrite = process.stdout.write;
+  process.stdout.write = (chunk) => {
+    writes.push(String(chunk));
+    return true;
+  };
+  try {
+    assert.equal(main(['measure', dir, '--min-calls', '1', '--json']), 0);
+  } finally {
+    process.stdout.write = originalWrite;
+    fs.rmSync(dir, { recursive: true });
+  }
+
+  const report = JSON.parse(writes.join(''));
+  assert.equal(report.sessions, 1);
+  assert.equal(report.calls, 1);
+  assert.equal(report.callsTouchedByADefaultNormaliser, 0);
+  assert.deepEqual(report.hitsByNormaliser, {});
+  assert.equal(report.callsTouchedByAnAvailableNormaliser, 1);
+  assert.deepEqual(
+    Object.keys(report.availableHitsByNormaliser).sort(),
+    [...OPTIONAL_NORMALISERS].sort(),
+  );
+  assert.equal(report.availableHitsByNormaliser.uuid, 1);
+  assert.equal(report.availableHitsByNormaliser['iso-timestamp'], 1);
 });
 
 test('the default preset catches a changed UUID-shaped customer id', () => {

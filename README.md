@@ -54,7 +54,7 @@ than described.
 
 <!-- generated:begin -->
 
-**103 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
+**104 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
 
 | case | `strict` | `default` | `loose` | should be |
 |---|---|---|---|---|
@@ -173,7 +173,7 @@ npm test                            # unit suite only
 node src/cli.js matrix              # the fixture matrix above
 node src/cli.js extract session.jsonl -o run.trace.json
 node src/cli.js match run.trace.json snapshot.trace.json --preset default
-node src/cli.js measure ~/.claude/projects   # normaliser hit rates on a real corpus
+node src/cli.js measure ~/.claude/projects   # available opt-in normaliser candidates in a corpus
 bash scripts/sabotage.sh            # break the engine five ways, require the suite to notice
 ```
 
@@ -248,7 +248,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    zero declared dependencies
 
 3. unit suite
-  ok    103 tests passed
+  ok    104 tests passed
 
 4. the fixture matrix, both failure modes on real fixture pairs
     case                       strict   default  loose    should be
@@ -274,12 +274,12 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 
 6. an independent re-derivation, in Python, sharing no code with src/
     independently recomputed 21 matrix cells across 7 fixture pairs
-    independently counted 103 passing tests from the TAP stream
+    independently counted 104 passing tests from the TAP stream
     INDEPENDENT CHECK OK
   ok    the independent implementation agrees on every cell
 
 6b. the independent checker really is independent
-    76 substantive lines in the checker, 535 in src/, 0 identical
+    76 substantive lines in the checker, 547 in src/, 0 identical
   ok    different language, its own verdict functions, and no source line copied from src/
 
 7. real Claude Code transcripts
@@ -309,7 +309,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    the matcher behaves correctly on real recorded agent runs
 
 8. the CLI is usable end to end on a real transcript
-    8400 tool calls in 7903 batches, 3566 prose blocks, 0 unparseable lines -> /tmp/tmp.RWfVy8Pnx5/real.trace.json
+    8400 tool calls in 7903 batches, 3566 prose blocks, 0 unparseable lines -> /tmp/tmp.usesNXd78x/real.trace.json
   ok    extracted 8400 tool calls and the trace matches itself under the strictest preset
 
 9. the fixtures on disk are the ones the generator produces
@@ -341,7 +341,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    an overflowing element, an unparseable script, and a runtime exception are all caught
 
 13. nothing private or oversized is committed
-    43 tracked files, largest 20313 bytes
+    43 tracked files, largest 20496 bytes
   ok    no home path, no credential-shaped strings, no NUL bytes, nothing over 1 MB
 
 13b. the secret scan can actually see a NUL-containing file
@@ -361,7 +361,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 
 15. the README describes this repository as it is now
   ok    README.md generated block is current (2930 chars)
-    README is 20481 characters and claims 20 checks
+    README is 20494 characters and claims 20 checks
   ok    the README has a Status section whose pasted output matches this run
 
 20 passed, 0 failed

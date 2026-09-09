@@ -163,8 +163,8 @@ export function normaliseValue(value, normalisers, key = '') {
 }
 
 /**
- * Count, per normaliser, how many leaf values it changes in a value tree.
- * Used to measure the default set against a real corpus rather than asserting it is right.
+ * Count, per selected normaliser, how many leaf values it changes in a value tree.
+ * Used to measure candidate normalisers against a real corpus rather than asserting they are right.
  */
 export function normaliserHits(value, names = DEFAULT_NORMALISERS) {
   /** @type {Record<string, number>} */

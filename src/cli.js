@@ -4,7 +4,7 @@
 //   trace-snapshot extract <session.jsonl> [-o out.json]     read a Claude Code transcript
 //   trace-snapshot match <run.json> <snapshot.json> [--preset default] [--config c.json]
 //   trace-snapshot matrix [fixtures-dir] [--json]            every fixture pair x every preset
-//   trace-snapshot measure <dir-or-file>...                  normaliser hit rates on a corpus
+//   trace-snapshot measure <dir-or-file>...                  opt-in normaliser candidates in a corpus
 //   trace-snapshot normalisers                               what the defaults do and why
 
 import fs from 'node:fs';
@@ -172,12 +172,14 @@ function cmdMeasure(argv) {
   files.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
 
   const totals = Object.fromEntries(DEFAULT_NORMALISERS.map((n) => [n, 0]));
+  const availableTotals = Object.fromEntries(OPTIONAL_NORMALISERS.map((n) => [n, 0]));
   let sessions = 0;
   let calls = 0;
   let batches = 0;
   let parallelBatches = 0;
   let leaves = 0;
   let changedCalls = 0;
+  let availableChangedCalls = 0;
   let malformed = 0;
 
   for (const f of files) {
@@ -202,6 +204,13 @@ function cmdMeasure(argv) {
         if (v) any = true;
       }
       if (any) changedCalls++;
+      const availableHits = normaliserHits(s.args, OPTIONAL_NORMALISERS);
+      let anyAvailable = false;
+      for (const [k, v] of Object.entries(availableHits)) {
+        availableTotals[k] += v;
+        if (v) anyAvailable = true;
+      }
+      if (anyAvailable) availableChangedCalls++;
       seen.set(s.group, (seen.get(s.group) ?? 0) + 1);
     }
     batches += seen.size;
@@ -217,6 +226,8 @@ function cmdMeasure(argv) {
     callsTouchedByADefaultNormaliser: changedCalls,
     malformedLines: malformed,
     hitsByNormaliser: totals,
+    callsTouchedByAnAvailableNormaliser: availableChangedCalls,
+    availableHitsByNormaliser: availableTotals,
   };
   if (argv.includes('--json')) {
     process.stdout.write(JSON.stringify(out, null, 2) + '\n');
@@ -230,6 +241,13 @@ function cmdMeasure(argv) {
     `${changedCalls} calls (${pct(changedCalls, calls)}) contain at least one value a default normaliser rewrites\n`,
   );
   for (const [k, v] of Object.entries(totals).sort((a, b) => b[1] - a[1])) {
+    process.stdout.write(`  ${k.padEnd(20)} ${String(v).padStart(7)}  ${pct(v, leaves)} of leaves\n`);
+  }
+  process.stdout.write(
+    `${availableChangedCalls} calls (${pct(availableChangedCalls, calls)}) contain at least one value ` +
+      'an available opt-in normaliser would rewrite\n',
+  );
+  for (const [k, v] of Object.entries(availableTotals).sort((a, b) => b[1] - a[1])) {
     process.stdout.write(`  ${k.padEnd(20)} ${String(v).padStart(7)}  ${pct(v, leaves)} of leaves\n`);
   }
   return sessions > 0 ? 0 : 1;

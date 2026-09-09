@@ -139,8 +139,8 @@
   <strong>Read the two end columns.</strong> <code>strict</code> fails
   6 of 7 pairs, including
   1 that
-  should have been tolerated: it rejects a rerun that only changed a run id, a wall clock and a
-  temp directory. <code>loose</code> passes all 7, including
+  should have been tolerated: it rejects a rerun whose parallel reads only returned in a
+  different order. <code>loose</code> passes all 7, including
   5 genuine regressions, one of which is the agent no longer writing the
   file it was asked to write. The loose preset is not merely permissive, it cannot fail at all,
   and <code>scripts/check_independent.py</code> proves that by feeding it two traces with
@@ -153,7 +153,7 @@
   <dt><code>identical</code></dt>
   <dd>a byte-identical rerun. If this ever fails, the engine is broken, and if every preset passes only this, the matrix is vacuous.</dd>
   <dt><code>tolerated-volatile</code></dt>
-  <dd>same trajectory. Different run uuid, different wall-clock time, different temp directory, parallel reads returned in a different order, and completely different model prose.</dd>
+  <dd>same trajectory and arguments. Parallel reads returned in a different order, and the model prose is completely different.</dd>
   <dt><code>regression-dropped-call</code></dt>
   <dd>the agent stopped writing the report. This is the failure a trace snapshot exists to catch, and the loose preset passes it.</dd>
   <dt><code>regression-wrong-path</code></dt>
@@ -187,16 +187,7 @@
     <pre><code>{
   &quot;order&quot;: &quot;groups&quot;,
   &quot;args&quot;: &quot;normalised&quot;,
-  &quot;normalisers&quot;: [
-    &quot;uuid&quot;,
-    &quot;iso-timestamp&quot;,
-    &quot;epoch-millis&quot;,
-    &quot;time-valued-number&quot;,
-    &quot;tmp-path&quot;,
-    &quot;home-path&quot;,
-    &quot;hex-digest&quot;,
-    &quot;ephemeral-port&quot;
-  ],
+  &quot;normalisers&quot;: [],
   &quot;argRules&quot;: [],
   &quot;extra&quot;: &quot;fail&quot;,
   &quot;missing&quot;: &quot;fail&quot;,
@@ -239,35 +230,25 @@
 
 <h2>Arguments</h2>
 <p>
-  A file path matters. A UUID does not. A timestamp never does. A normaliser here does not delete
-  a value, it replaces one whose identity is meaningless with a placeholder that still asserts
-  the value's shape: after normalisation <code>&lt;uuid&gt;</code> means "a uuid was here", not
-  "anything was here". A run that stops passing a session id, or passes a number where a uuid
-  belongs, still fails. Anything that truly should not be compared uses the <code>ignore</code>
-  policy, which is opt-in per key and never implied.
+  UUIDs, timestamps, hashes, paths and ports can all be semantic arguments. The default preset
+  therefore rewrites no values. Each normaliser remains available by explicit opt-in, and
+  <code>argRules</code> can scope tolerance to a known volatile tool field.
 </p>
-
-<div class="scroll">
-<table>
-  <thead><tr><th scope="col">normaliser</th><th scope="col">why</th></tr></thead>
-  <tbody>
-    <tr><th scope="row"><code>uuid</code></th><td>a v1-v8 uuid identifies a run, not a behaviour; replaced by &lt;uuid&gt;, which still requires a uuid to be there</td></tr>
-    <tr><th scope="row"><code>iso-timestamp</code></th><td>wall-clock time never carries meaning across runs; a bare date is left alone because a date can be a real argument</td></tr>
-    <tr><th scope="row"><code>epoch-millis</code></th><td>13-digit epoch ms, range-restricted to 2001-2286 so ordinary large integers survive</td></tr>
-    <tr><th scope="row"><code>time-valued-number</code></th><td>a numeric value under a time-shaped key (elapsed, duration, ts) differs every run by construction</td></tr>
-    <tr><th scope="row"><code>tmp-path</code></th><td>the random temp root changes every run; the basename after it is kept because that is the part under test</td></tr>
-    <tr><th scope="row"><code>home-path</code></th><td>an absolute home path is both machine-specific and personal information; collapsed to ~</td></tr>
-    <tr><th scope="row"><code>hex-digest</code></th><td>a 32+ char lowercase hex digest is content-derived; case-sensitive so base64 blobs are not swept up</td></tr>
-    <tr><th scope="row"><code>ephemeral-port</code></th><td>a loopback port is assigned by the OS; the host is kept so a change of host still fails</td></tr>
-  </tbody>
-</table>
-</div>
+<p><strong>Default normalisers:</strong> none. Every argument value is compared.</p>
 <p>These are available and off by default, each for a stated reason:</p>
 
 <div class="scroll">
 <table>
   <thead><tr><th scope="col">normaliser</th><th scope="col">why</th></tr></thead>
   <tbody>
+    <tr><th scope="row"><code>uuid</code></th><td>opt-in: replaces v1-v8 UUIDs with &lt;uuid&gt;. Off by default because a UUID can identify a semantic domain object</td></tr>
+    <tr><th scope="row"><code>iso-timestamp</code></th><td>opt-in: replaces ISO timestamps with &lt;timestamp&gt;. Off by default because scheduled and effective times can be semantic arguments</td></tr>
+    <tr><th scope="row"><code>epoch-millis</code></th><td>opt-in: replaces 13-digit epoch milliseconds. Off by default because a deadline or effective time can be semantic</td></tr>
+    <tr><th scope="row"><code>time-valued-number</code></th><td>opt-in: replaces numbers under time-shaped keys. Off by default because a timestamp or duration can affect behavior</td></tr>
+    <tr><th scope="row"><code>tmp-path</code></th><td>opt-in: replaces a random-looking temp root and keeps its suffix. Off by default because a temp target can be semantic</td></tr>
+    <tr><th scope="row"><code>home-path</code></th><td>opt-in: replaces the user segment of an absolute home path. Off by default because a target home can be semantic</td></tr>
+    <tr><th scope="row"><code>hex-digest</code></th><td>opt-in: replaces a 32-64 character lowercase hex digest. Off by default because a requested revision can be semantic</td></tr>
+    <tr><th scope="row"><code>ephemeral-port</code></th><td>opt-in: replaces a loopback port while keeping its host. Off by default because a selected service port can be semantic</td></tr>
     <tr><th scope="row"><code>epoch-seconds</code></th><td>opt-in: 10-digit epoch seconds. Off by default because it collides with ordinary integers such as byte counts</td></tr>
     <tr><th scope="row"><code>short-sha</code></th><td>opt-in: 7-12 char lowercase hex. Off by default because it matches CSS colours and words like deadbeef</td></tr>
     <tr><th scope="row"><code>line-numbers</code></th><td>opt-in: file:line:col suffixes, for suites where edits shift line numbers constantly</td></tr>
@@ -275,27 +256,27 @@
   </tbody>
 </table>
 </div>
+<p>
+  Normalisers only affect comparison keys. They do not redact recorded traces, snapshots or raw
+  values in failure diagnostics.
+</p>
 
 <h2>What a divergence looks like</h2>
-<p>The same rerun, under <code>default</code>. It changed a run id, a timestamp, a temp directory, the order of three parallel reads, and all of the prose:</p>
+<p>The same rerun, under <code>default</code>. It changed the order of three parallel reads and all of the prose:</p>
 <pre><code>trace matches  7 calls aligned, order=groups args=normalised</code></pre>
 <p>Under <code>strict</code>, the same rerun:</p>
-<pre><code>trace diverged  5 problems  (order=strict args=exact extra=fail missing=fail)
+<pre><code>trace diverged  1 problem  (order=strict args=exact extra=fail missing=fail)
   first divergence: Read moved relative to the snapshot
-  4 matched, 0 changed, 2 missing, 2 extra, 1 moved  (snapshot 7 calls, run 7)
+  6 matched, 0 changed, 0 missing, 0 extra, 1 moved  (snapshot 7 calls, run 7)
 
   [0] Glob pattern=**/tsconfig*.json
 + [1] Read file_path=packages/app/tsconfig.json   (moved)
   [1] Read file_path=tsconfig.json
   [2] Read file_path=tsconfig.build.json
 - [3] Read file_path=packages/app/tsconfig.json   (moved, present elsewhere)
-- [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (snapshot expected this call)
-- [5] Read file_path=/tmp/audit-4f21ab9/strict.json   (snapshot expected this call)
-+ [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000   (not in snapshot)
-+ [5] Read file_path=/tmp/audit-b7e0c31/strict.json   (not in snapshot)
-  [6] Write content=# Strict mode
-
-Enabled in packages/app … file_path=docs/strict-mode.md
+  [4] Bash command=node scripts/audit.mjs --out /tmp/audit… timeout=30000
+  [5] Read file_path=/tmp/audit-4f21ab9/strict.json
+  … 1 matching call
 
   prose was not compared. Set UPDATE_TRACE_SNAPSHOTS=1 to accept this run.</code></pre>
 <p>And a real regression under <code>default</code>, an agent that read a report before running the command that writes it:</p>
@@ -344,6 +325,7 @@ test('the research agent still reads before it writes', async () =&gt; {
   argRules: [
     { tool: 'Write', key: 'content', policy: 'type', type: 'string' },
     { tool: 'Bash', key: 'command', policy: 'regex', pattern: '^git ' },
+    { tool: 'Fetch', key: 'request_id', policy: 'regex', pattern: '^[0-9a-f-]{36}$' },
     { key: '/^tmp_/', policy: 'ignore' },
   ],
 });</code></pre>

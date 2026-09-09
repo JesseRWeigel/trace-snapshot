@@ -86,16 +86,16 @@ def render():
         f"`loose` passes {passes['loose']}/{len(rows)}. The two end columns are the two failure "
         f"modes: `strict` rejects "
         f"{len(tolerated) - sum(1 for r in tolerated if r['results']['strict'] == 'pass')} rerun(s) that "
-        f"changed nothing but a run id, a clock and a temp directory, and `loose` accepts all "
+        f"changed only the order of calls within one parallel batch, and `loose` accepts all "
         f"{len(regression)} genuine regressions, including an agent that stopped writing the file "
         f"it was asked to write.",
         "",
-        "Default normalisers:",
-        "",
-        "| normaliser | why |",
-        "|---|---|",
     ]
-    lines += [f"| `{n['name']}` | {n['why']} |" for n in norms["default"]]
+    if norms["default"]:
+        lines += ["Default normalisers:", "", "| normaliser | why |", "|---|---|"]
+        lines += [f"| `{n['name']}` | {n['why']} |" for n in norms["default"]]
+    else:
+        lines += ["Default normalisers: **none**. The default compares every argument value."]
     lines += ["", "Off by default:", "", "| normaliser | why |", "|---|---|"]
     lines += [f"| `{n['name']}` | {n['why']} |" for n in norms["optional"]]
     lines += ["", END]

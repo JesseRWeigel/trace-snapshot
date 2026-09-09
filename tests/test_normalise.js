@@ -58,7 +58,7 @@ test('time-valued-number only fires on time-shaped keys', () => {
 });
 
 test('a placeholder still asserts the shape, it does not erase the field', () => {
-  const n = resolveNormalisers([...DEFAULT_NORMALISERS]);
+  const n = resolveNormalisers(['uuid']);
   const withUuid = normaliseValue({ session: '7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02' }, n);
   const withoutUuid = normaliseValue({ session: 'main' }, n);
   assert.equal(withUuid.session, '<uuid>');
@@ -66,7 +66,7 @@ test('a placeholder still asserts the shape, it does not erase the field', () =>
 });
 
 test('normalisation walks nested objects and arrays', () => {
-  const n = resolveNormalisers([...DEFAULT_NORMALISERS]);
+  const n = resolveNormalisers(['uuid', 'iso-timestamp']);
   const out = normaliseValue(
     { a: [{ b: 'id 7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02' }], c: { d: 'at 2026-07-30T11:02:03Z' } },
     n,
@@ -99,10 +99,14 @@ test('an unknown normaliser name is an error, not a silent no-op', () => {
 });
 
 test('normaliserHits counts per normaliser and reports zero when nothing matches', () => {
-  const hits = normaliserHits({ a: 'run 7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02', b: 'at 2026-07-30T11:02:03Z' });
+  const names = ['uuid', 'iso-timestamp', 'hex-digest'];
+  const hits = normaliserHits(
+    { a: 'run 7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02', b: 'at 2026-07-30T11:02:03Z' },
+    names,
+  );
   assert.equal(hits.uuid, 1);
   assert.equal(hits['iso-timestamp'], 1);
   assert.equal(hits['hex-digest'], 0);
-  const none = normaliserHits({ a: 'plain', b: 42 });
+  const none = normaliserHits({ a: 'plain', b: 42 }, names);
   assert.equal(Object.values(none).reduce((x, y) => x + y, 0), 0);
 });

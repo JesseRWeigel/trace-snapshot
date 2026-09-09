@@ -62,7 +62,19 @@ fi
 
 # The probe for each attack, run before and after the patch. Must differ.
 probe_dropped()  { node src/cli.js match fixtures/regression-dropped-call/run.trace.json fixtures/regression-dropped-call/baseline.trace.json --preset default --no-colour 2>&1; }
-probe_volatile() { node src/cli.js match fixtures/tolerated-volatile/run.trace.json fixtures/tolerated-volatile/baseline.trace.json --preset default --no-colour 2>&1; }
+probe_semantic_uuid() {
+  node --input-type=module - <<'JS'
+import { makeTrace } from './src/trace.js';
+import { matchTrace } from './src/match.js';
+const make = (customer_id) => makeTrace({
+  source: 'sabotage-probe',
+  steps: [{ group: 0, tool: 'update_customer', args: { customer_id } }],
+});
+const snapshot = make('7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02');
+const run = make('e0417a55-9c3d-4d18-8f6e-2b7714aa9c31');
+console.log(matchTrace(run, snapshot, { preset: 'default' }).pass);
+JS
+}
 probe_wrongpath(){ node src/cli.js match fixtures/regression-wrong-path/run.trace.json fixtures/regression-wrong-path/baseline.trace.json --preset default --no-colour 2>&1; }
 probe_order()    { node src/cli.js match fixtures/regression-order/run.trace.json fixtures/regression-order/baseline.trace.json --preset default --no-colour 2>&1; }
 probe_extra()    { node src/cli.js match fixtures/regression-extra-call/run.trace.json fixtures/regression-extra-call/baseline.trace.json --preset default --no-colour 2>&1; }
@@ -140,13 +152,10 @@ run_attack "a missing tool call is no longer reported" src/match.js probe_droppe
 "      } else if (cfg.missing === 'fail') {" \
 "      } else if (false) {"
 
-# 2. The uuid normaliser is removed from the default set, so a benign rerun starts failing.
-#    This is the too-strict direction, and it is what makes owners delete the snapshot.
-run_attack "the uuid normaliser is dropped from the defaults" src/normalise.js probe_volatile \
-"export const DEFAULT_NORMALISERS = Object.freeze([
-  'uuid'," \
-"export const DEFAULT_NORMALISERS = Object.freeze([
-  'iso-timestamp',"
+# 2. Broad UUID rewriting is added to the default set, so a changed customer id is hidden.
+run_attack "the uuid normaliser is added to the defaults" src/normalise.js probe_semantic_uuid \
+"export const DEFAULT_NORMALISERS = Object.freeze([]);" \
+"export const DEFAULT_NORMALISERS = Object.freeze(['uuid']);"
 
 # 3. Arguments stop being compared, so only tool names matter. Reading the wrong file passes.
 run_attack "arguments are dropped from the comparison key" src/match.js probe_wrongpath \

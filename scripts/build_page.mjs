@@ -223,8 +223,8 @@ ${matrixTable}
   <strong>Read the two end columns.</strong> <code>strict</code> fails
   ${rows.length - passCount('strict')} of ${rows.length} pairs, including
   ${toleratedRows.length - toleratedRows.filter((r) => r.results.strict === 'pass').length} that
-  should have been tolerated: it rejects a rerun that only changed a run id, a wall clock and a
-  temp directory. <code>loose</code> passes all ${rows.length}, including
+  should have been tolerated: it rejects a rerun whose parallel reads only returned in a
+  different order. <code>loose</code> passes all ${rows.length}, including
   ${regressionRows.length} genuine regressions, one of which is the agent no longer writing the
   file it was asked to write. The loose preset is not merely permissive, it cannot fail at all,
   and <code>scripts/check_independent.py</code> proves that by feeding it two traces with
@@ -259,19 +259,22 @@ ${whyList}
 
 <h2>Arguments</h2>
 <p>
-  A file path matters. A UUID does not. A timestamp never does. A normaliser here does not delete
-  a value, it replaces one whose identity is meaningless with a placeholder that still asserts
-  the value's shape: after normalisation <code>&lt;uuid&gt;</code> means "a uuid was here", not
-  "anything was here". A run that stops passing a session id, or passes a number where a uuid
-  belongs, still fails. Anything that truly should not be compared uses the <code>ignore</code>
-  policy, which is opt-in per key and never implied.
+  UUIDs, timestamps, hashes, paths and ports can all be semantic arguments. The default preset
+  therefore rewrites no values. Each normaliser remains available by explicit opt-in, and
+  <code>argRules</code> can scope tolerance to a known volatile tool field.
 </p>
-${normTable(DEFAULT_NORMALISERS)}
+${DEFAULT_NORMALISERS.length
+    ? normTable(DEFAULT_NORMALISERS)
+    : '<p><strong>Default normalisers:</strong> none. Every argument value is compared.</p>'}
 <p>These are available and off by default, each for a stated reason:</p>
 ${normTable(OPTIONAL_NORMALISERS)}
+<p>
+  Normalisers only affect comparison keys. They do not redact recorded traces, snapshots or raw
+  values in failure diagnostics.
+</p>
 
 <h2>What a divergence looks like</h2>
-<p>The same rerun, under <code>default</code>. It changed a run id, a timestamp, a temp directory, the order of three parallel reads, and all of the prose:</p>
+<p>The same rerun, under <code>default</code>. It changed the order of three parallel reads and all of the prose:</p>
 <pre><code>${esc(toleratedDiff)}</code></pre>
 <p>Under <code>strict</code>, the same rerun:</p>
 <pre><code>${esc(strictDiff)}</code></pre>
@@ -306,6 +309,7 @@ test('the research agent still reads before it writes', async () =&gt; {
   argRules: [
     { tool: 'Write', key: 'content', policy: 'type', type: 'string' },
     { tool: 'Bash', key: 'command', policy: 'regex', pattern: '^git ' },
+    { tool: 'Fetch', key: 'request_id', policy: 'regex', pattern: '^[0-9a-f-]{36}$' },
     { key: '/^tmp_/', policy: 'ignore' },
   ],
 });</code></pre>

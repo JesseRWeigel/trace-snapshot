@@ -19,7 +19,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIX = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'fixtures');
 
 const RUN_A = '7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02';
-const RUN_B = 'e0417a55-9c3d-4d18-8f6e-2b7714aa9c31';
 
 const proseA = [
   'I will start by finding every tsconfig in the workspace.',
@@ -62,16 +61,13 @@ function baseline() {
   });
 }
 
-/** A second run of the same task. Only volatile identity and batch order changed. */
+/** A second run of the same task. Only parallel batch order and model prose changed. */
 function tolerated() {
   const t = baseline();
   t.prose = proseB;
   // the parallel batch came back in a different order
   const g1 = t.steps.slice(1, 4);
   t.steps.splice(1, 3, g1[2], g1[0], g1[1]);
-  t.steps[4].args.command =
-    `node scripts/audit.mjs --out /tmp/audit-b7e0c31/strict.json --run ${RUN_B} --at 2026-08-01T04:47:19Z`;
-  t.steps[5].args.file_path = '/tmp/audit-b7e0c31/strict.json';
   return renumber(t);
 }
 
@@ -135,7 +131,7 @@ const CASES = [
   {
     dir: 'tolerated-volatile',
     kind: 'tolerated',
-    why: 'same trajectory. Different run uuid, different wall-clock time, different temp directory, parallel reads returned in a different order, and completely different model prose.',
+    why: 'same trajectory and arguments. Parallel reads returned in a different order, and the model prose is completely different.',
     build: tolerated,
     expect: { strict: 'fail', default: 'pass', loose: 'pass' },
   },

@@ -15,7 +15,7 @@
     {
       "dir": "tolerated-volatile",
       "kind": "tolerated",
-      "why": "same trajectory. Different run uuid, different wall-clock time, different temp directory, parallel reads returned in a different order, and completely different model prose.",
+      "why": "same trajectory and arguments. Parallel reads returned in a different order, and the model prose is completely different.",
       "expect": {
         "strict": "fail",
         "default": "pass",

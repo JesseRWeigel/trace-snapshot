@@ -260,6 +260,9 @@ function cmdNormalisers(argv) {
     return 0;
   }
   process.stdout.write(`on by default (${DEFAULT_NORMALISERS.length}):\n`);
+  if (DEFAULT_NORMALISERS.length === 0) {
+    process.stdout.write('  none; every argument value is compared\n');
+  }
   for (const n of DEFAULT_NORMALISERS) process.stdout.write(`  ${n.padEnd(20)} ${NORMALISERS[n].why}\n`);
   process.stdout.write(`\noff by default (${OPTIONAL_NORMALISERS.length}):\n`);
   for (const n of OPTIONAL_NORMALISERS) process.stdout.write(`  ${n.padEnd(20)} ${NORMALISERS[n].why}\n`);

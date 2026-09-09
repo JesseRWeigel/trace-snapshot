@@ -48,7 +48,7 @@ export const PRESETS = {
     allowExtraKeys: false,
   },
 
-  // The recommendation.
+  // The recommendation: preserve argument values while tolerating order within parallel batches.
   default: {
     order: 'groups',
     args: 'normalised',

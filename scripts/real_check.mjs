@@ -7,11 +7,11 @@
 //
 // For each session the script builds two mutations of the real trace:
 //
-//   benign      every uuid remapped, every timestamp shifted, every temp root renamed, every
+//   rewrite     every uuid remapped, every timestamp shifted, every temp root renamed, every
 //               epoch-ms bumped, calls shuffled inside their parallel batches, all prose
-//               replaced. The default preset must PASS, and the strict preset must FAIL. That
-//               second half is the control: if strict also passed, the mutation did nothing and
-//               the first half proved nothing.
+//               replaced. An explicit broad normaliser config must PASS, while the safe default
+//               must reject rewritten argument values. Strict must also fail as a mutation
+//               control.
 //
 //   regression  one tool call removed. The default preset must FAIL with a `missing` problem.
 //
@@ -24,13 +24,23 @@ import path from 'node:path';
 import { fromClaudeTranscript } from '../src/record.js';
 import { matchTrace } from '../src/match.js';
 import { makeTrace, groupsOf, canonicalJson } from '../src/trace.js';
-import { normaliserHits, DEFAULT_NORMALISERS, normaliseValue, resolveNormalisers }
+import { normaliserHits, normaliseValue, resolveNormalisers }
   from '../src/normalise.js';
 
 const HOME = os.homedir();
 const CORPUS = process.env.TRACE_CORPUS ?? path.join(HOME, '.claude', 'projects');
 const LIMIT = Number(process.env.TRACE_CORPUS_LIMIT ?? 12);
 const MIN_CALLS = 12;
+const BROAD_NORMALISERS = [
+  'uuid',
+  'iso-timestamp',
+  'epoch-millis',
+  'time-valued-number',
+  'tmp-path',
+  'home-path',
+  'hex-digest',
+  'ephemeral-port',
+];
 
 const say = (s) => process.stdout.write(`${String(s).split(HOME).join('~')}\n`);
 
@@ -178,7 +188,7 @@ let checked = 0;
 // that made this script report a defect in src/ that was in this file.
 function assertBenignIsBenign() {
   const r = rng(1);
-  const resolved = resolveNormalisers(DEFAULT_NORMALISERS);
+  const resolved = resolveNormalisers(BROAD_NORMALISERS);
   const problems = [];
   for (let i = 0; i < 5000; i += 1) {
     const name = `/tmp/${fakeTmpName(r)}`;
@@ -195,7 +205,7 @@ function assertBenignIsBenign() {
 assertBenignIsBenign();
 
 const totals = { calls: 0, batches: 0, parallelBatches: 0, prose: 0, malformed: 0, sessions: 0 };
-const normTotals = Object.fromEntries(DEFAULT_NORMALISERS.map((n) => [n, 0]));
+const normTotals = Object.fromEntries(BROAD_NORMALISERS.map((n) => [n, 0]));
 let argLeaves = 0;
 
 for (const f of files) {
@@ -219,7 +229,7 @@ for (const f of files) {
   totals.malformed += trace.malformedLines;
   for (const s of trace.steps) {
     argLeaves += countLeaves(s.args);
-    const h = normaliserHits(s.args);
+    const h = normaliserHits(s.args, BROAD_NORMALISERS);
     for (const [k, v] of Object.entries(h)) normTotals[k] += v;
   }
 
@@ -228,6 +238,10 @@ for (const f of files) {
 
   const mutationApplied =
     counts.uuid + counts.timestamp + counts.tmp + counts.epoch + counts.home + counts.shuffledBatches > 0;
+  const benignBroad = matchTrace(benign, trace, {
+    preset: 'default',
+    normalisers: BROAD_NORMALISERS,
+  });
   const benignDefault = matchTrace(benign, trace, { preset: 'default' });
   const benignStrict = matchTrace(benign, trace, { preset: 'strict' });
 
@@ -245,8 +259,11 @@ for (const f of files) {
     parallel: groups.filter((g) => g.length > 1).length,
     counts,
     mutationApplied,
-    benignPassesDefault: benignDefault.pass,
-    benignProblems: benignDefault.problems ?? [],
+    benignPassesBroad: benignBroad.pass,
+    benignProblems: benignBroad.problems ?? [],
+    valueRewriteApplied:
+      counts.uuid + counts.timestamp + counts.tmp + counts.epoch + counts.home > 0,
+    valueRewriteFailsDefault: !benignDefault.pass,
     benignFailsStrict: !benignStrict.pass,
     dropFailsDefault: !dropDefault.pass,
     dropProblemKinds: [...new Set(dropDefault.problems.map((p) => p.kind))],
@@ -296,21 +313,31 @@ const totalRewrites = results.reduce(
 );
 say(`benign mutation rewrote ${totalRewrites} volatile values and reversed ${shuffled} parallel batches`);
 
-const benignOk = results.filter((r) => r.benignPassesDefault).length;
+const benignOk = results.filter((r) => r.benignPassesBroad).length;
 if (benignOk !== results.length) {
-  fail(`${results.length - benignOk} of ${results.length} real sessions FAILED the default preset after a benign mutation`);
-  // WHAT IT COMPLAINED ABOUT, not just which file. A benign mutation is supposed to change nothing
-  // the default preset cares about, so a failure here means a normaliser missed a value shape or a
+  fail(`${results.length - benignOk} of ${results.length} real sessions FAILED explicit broad normalisation after the rewrite`);
+  // WHAT IT COMPLAINED ABOUT, not just which file. The rewrite is supposed to change only values
+  // covered by the explicit broad config, so a failure means a normaliser missed a value shape or a
   // batch was not treated as order-free. The file name alone cannot tell you which, and finding
   // out meant editing this script, so the first two problems are printed.
-  for (const r of results.filter((x) => !x.benignPassesDefault)) {
+  for (const r of results.filter((x) => !x.benignPassesBroad)) {
     say(`        ${r.file} (${r.calls} calls)`);
     for (const p of (r.benignProblems ?? []).slice(0, 2)) {
       say(`          ${p.kind}: ${String(p.message).split(HOME).join('~').slice(0, 150)}`);
     }
   }
 } else {
-  say(`  ok    ${benignOk}/${results.length} sessions: default preset tolerates the benign mutation`);
+  say(`  ok    ${benignOk}/${results.length} sessions: explicit broad normalisers tolerate the rewrite`);
+}
+
+const rewritten = results.filter((r) => r.valueRewriteApplied);
+const safeDefaultOk = rewritten.filter((r) => r.valueRewriteFailsDefault).length;
+if (rewritten.length === 0) {
+  fail('no session had an argument value rewritten, so the safe default was never exercised');
+} else if (safeDefaultOk !== rewritten.length) {
+  fail(`${rewritten.length - safeDefaultOk} of ${rewritten.length} rewritten sessions passed the safe default`);
+} else {
+  say(`  ok    ${safeDefaultOk}/${rewritten.length} rewritten sessions: safe default preserves argument values`);
 }
 
 const strictFails = results.filter((r) => r.benignFailsStrict).length;

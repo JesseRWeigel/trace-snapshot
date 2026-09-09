@@ -150,7 +150,7 @@ for line in src.splitlines():
         problems.append(f"it imports project code: {line.strip()!r}")
 if "subprocess" not in src:
     problems.append("it does not run the implementation as a subprocess, so it may be a copy")
-for fn in ("def verdict", "def sequence", "def norm_string", "def key_of"):
+for fn in ("def verdict", "def sequence", "def canon", "def key_of"):
     if fn not in src:
         problems.append(f"it has no {fn} of its own")
 if "src/match.js says" not in src:

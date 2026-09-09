@@ -95,13 +95,13 @@ test('extra=fail catches an unplanned call, extra=allow does not', () => {
 
 // --- argument policies ------------------------------------------------------------------
 
-test('normalised args tolerate a volatile value and still fail on a real one', () => {
+test('explicit UUID normalisation tolerates a volatile value and still fails on a real one', () => {
   const base = (uuid, p) => T([{ group: 0, tool: 'Bash', args: { command: `run --id ${uuid} ${p}` } }]);
   const a = base('7c9b3a1e-2f44-4b90-9a11-63d0e5c8bb02', 'src/a.ts');
   const b = base('e0417a55-9c3d-4d18-8f6e-2b7714aa9c31', 'src/a.ts');
   const c = base('e0417a55-9c3d-4d18-8f6e-2b7714aa9c31', 'src/b.ts');
-  assert.equal(matchTrace(b, a, { preset: 'default' }).pass, true);
-  assert.equal(matchTrace(c, a, { preset: 'default' }).pass, false);
+  assert.equal(matchTrace(b, a, { normalisers: ['uuid'] }).pass, true);
+  assert.equal(matchTrace(c, a, { normalisers: ['uuid'] }).pass, false);
 });
 
 test('args=exact refuses the volatile value, which is the too-strict failure mode', () => {

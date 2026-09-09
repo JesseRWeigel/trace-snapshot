@@ -3,7 +3,7 @@
 // The point of a normaliser here is NOT to delete a value. It is to replace a value whose
 // identity is meaningless with a placeholder that still asserts the value's SHAPE. After
 // normalisation, `<uuid>` means "there was a uuid here", not "there was anything here".
-// That distinction is the whole reason the default set is defensible: a run that stops
+// That distinction is what makes an explicitly selected normaliser useful: a run that stops
 // passing a session id, or passes a number where a uuid belongs, still fails.
 //
 // Anything that genuinely should not be compared at all uses the `ignore` argument policy,
@@ -20,8 +20,8 @@
 const UUID_RE =
   /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b/g;
 
-// ISO 8601 with a date and a time. A bare date (2026-08-01) is deliberately NOT matched:
-// a date can be a meaningful argument (a report range), a full timestamp almost never is.
+// ISO 8601 with a date and a time. A bare date (2026-08-01) is deliberately not matched.
+// The normaliser itself is opt-in because either form can be a meaningful argument.
 const ISO_RE =
   /\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 
@@ -50,43 +50,43 @@ const TIME_KEY_RE =
 export const NORMALISERS = {
   uuid: {
     name: 'uuid',
-    why: 'a v1-v8 uuid identifies a run, not a behaviour; replaced by <uuid>, which still requires a uuid to be there',
+    why: 'opt-in: replaces v1-v8 UUIDs with <uuid>. Off by default because a UUID can identify a semantic domain object',
     onString: (s) => s.replace(UUID_RE, '<uuid>'),
   },
   'iso-timestamp': {
     name: 'iso-timestamp',
-    why: 'wall-clock time never carries meaning across runs; a bare date is left alone because a date can be a real argument',
+    why: 'opt-in: replaces ISO timestamps with <timestamp>. Off by default because scheduled and effective times can be semantic arguments',
     onString: (s) => s.replace(ISO_RE, '<timestamp>'),
   },
   'epoch-millis': {
     name: 'epoch-millis',
-    why: '13-digit epoch ms, range-restricted to 2001-2286 so ordinary large integers survive',
+    why: 'opt-in: replaces 13-digit epoch milliseconds. Off by default because a deadline or effective time can be semantic',
     onString: (s) => s.replace(EPOCH_MS_RE, '<epoch-ms>'),
   },
   'time-valued-number': {
     name: 'time-valued-number',
-    why: 'a numeric value under a time-shaped key (elapsed, duration, ts) differs every run by construction',
+    why: 'opt-in: replaces numbers under time-shaped keys. Off by default because a timestamp or duration can affect behavior',
     onValue: (key, value) =>
       typeof value === 'number' && TIME_KEY_RE.test(key) ? '<number:time>' : value,
   },
   'tmp-path': {
     name: 'tmp-path',
-    why: 'the random temp root changes every run; the basename after it is kept because that is the part under test',
+    why: 'opt-in: replaces a random-looking temp root and keeps its suffix. Off by default because a temp target can be semantic',
     onString: (s) => s.replace(TMP_RE, '<tmpdir>'),
   },
   'home-path': {
     name: 'home-path',
-    why: 'an absolute home path is both machine-specific and personal information; collapsed to ~',
+    why: 'opt-in: replaces the user segment of an absolute home path. Off by default because a target home can be semantic',
     onString: (s) => s.replace(HOME_RE, '~'),
   },
   'hex-digest': {
     name: 'hex-digest',
-    why: 'a 32+ char lowercase hex digest is content-derived; case-sensitive so base64 blobs are not swept up',
+    why: 'opt-in: replaces a 32-64 character lowercase hex digest. Off by default because a requested revision can be semantic',
     onString: (s) => s.replace(HEX_RE, '<hash>'),
   },
   'ephemeral-port': {
     name: 'ephemeral-port',
-    why: 'a loopback port is assigned by the OS; the host is kept so a change of host still fails',
+    why: 'opt-in: replaces a loopback port while keeping its host. Off by default because a selected service port can be semantic',
     onString: (s) => s.replace(PORT_RE, '$1:<port>'),
   },
 
@@ -114,16 +114,9 @@ export const NORMALISERS = {
   },
 };
 
-export const DEFAULT_NORMALISERS = Object.freeze([
-  'uuid',
-  'iso-timestamp',
-  'epoch-millis',
-  'time-valued-number',
-  'tmp-path',
-  'home-path',
-  'hex-digest',
-  'ephemeral-port',
-]);
+// Value shape alone cannot tell whether an argument is volatile metadata or domain data.
+// Callers opt into broad rewriting through config.normalisers, or scope tolerance with argRules.
+export const DEFAULT_NORMALISERS = Object.freeze([]);
 
 export const OPTIONAL_NORMALISERS = Object.freeze(
   Object.keys(NORMALISERS).filter((n) => !DEFAULT_NORMALISERS.includes(n)),

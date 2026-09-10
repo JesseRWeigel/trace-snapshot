@@ -126,6 +126,70 @@ for (const order of ['groups', 'any']) {
   });
 }
 
+test('groups pairs outcomes after an allowed extra whole group shifts later group numbers', () => {
+  const expected = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const actual = makeTrace({ steps: [
+    { group: 0, tool: 'Read', args: { path: 'extra.txt' }, ok: true },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const result = matchTrace(actual, expected, {
+    outcomes: 'assert', order: 'groups', extra: 'allow',
+  });
+  assert.equal(result.pass, true);
+  assert.equal(result.summary.extra, 2);
+  assert.equal(result.summary.outcomeProblems, 0);
+});
+
+test('groups pairs outcomes after an allowed missing whole group shifts later group numbers', () => {
+  const expected = makeTrace({ steps: [
+    { group: 0, tool: 'Read', args: { path: 'missing.txt' }, ok: true },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const actual = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const result = matchTrace(actual, expected, {
+    outcomes: 'assert', order: 'groups', missing: 'allow',
+  });
+  assert.equal(result.pass, true);
+  assert.equal(result.summary.missing, 2);
+  assert.equal(result.summary.outcomeProblems, 0);
+});
+
+test('groups uses compatible evidence to choose between structurally identical surplus groups', () => {
+  const expected = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const actual = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const result = matchTrace(actual, expected, {
+    outcomes: 'assert', order: 'groups', extra: 'allow',
+  });
+  assert.equal(result.pass, true);
+  assert.equal(result.summary.extra, 1);
+  assert.equal(result.summary.outcomeProblems, 0);
+});
+
+test('groups never pairs identical calls across ordered batch boundaries', () => {
+  const expected = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+  ] });
+  const actual = makeTrace({ steps: [
+    { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+    { group: 1, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+  ] });
+  const result = matchTrace(actual, expected, { outcomes: 'assert', order: 'groups' });
+  assert.equal(result.pass, false);
+  assert.deepEqual(result.problems.map((p) => p.kind), ['exit-code', 'exit-code']);
+});
+
 test('artifact evidence missing from a run is unavailable, distinct from exists false', () => {
   const expected = T('Write', { file_path: 'report.md' }, {
     ok: true,

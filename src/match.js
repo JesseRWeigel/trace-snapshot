@@ -131,7 +131,7 @@ function align(expected, actual) {
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       dp[at(i, j)] =
-        expected[i].key === actual[j].key
+        (expected[i].alignKey ?? expected[i].key) === (actual[j].alignKey ?? actual[j].key)
           ? dp[at(i + 1, j + 1)] + 1
           : Math.max(dp[at(i + 1, j)], dp[at(i, j + 1)]);
     }
@@ -140,7 +140,7 @@ function align(expected, actual) {
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
-    if (expected[i].key === actual[j].key) {
+    if ((expected[i].alignKey ?? expected[i].key) === (actual[j].alignKey ?? actual[j].key)) {
       ops.push({ op: 'equal', e: expected[i], a: actual[j] });
       i++;
       j++;
@@ -288,54 +288,144 @@ function compareOutcome(e, a, expectedVersion, actualVersion) {
   return problems;
 }
 
+function maximumCompatiblePairs(expected, actual, expectedVersion, actualVersion) {
+  const compatible = expected.map((e) => actual
+    .map((a, ai) => e.key === a.key && compareOutcome(e, a, expectedVersion, actualVersion).length === 0 ? ai : -1)
+    .filter((ai) => ai >= 0));
+  const actualToExpected = new Array(actual.length).fill(-1);
+  const assign = (ei, seen) => {
+    for (const ai of compatible[ei]) {
+      if (seen.has(ai)) continue;
+      seen.add(ai);
+      if (actualToExpected[ai] === -1 || assign(actualToExpected[ai], seen)) {
+        actualToExpected[ai] = ei;
+        return true;
+      }
+    }
+    return false;
+  };
+  for (let ei = 0; ei < expected.length; ei++) assign(ei, new Set());
+  return actualToExpected
+    .map((ei, ai) => ({ ei, ai }))
+    .filter(({ ei }) => ei >= 0)
+    .sort((x, y) => x.ei - y.ei);
+}
+
+function scopeBuckets(slots) {
+  const byScope = new Map();
+  slots.forEach((slot, index) => {
+    if (!byScope.has(slot.scope)) byScope.set(slot.scope, new Map());
+    const byKey = byScope.get(slot.scope);
+    if (!byKey.has(slot.key)) byKey.set(slot.key, []);
+    byKey.get(slot.key).push(index);
+  });
+  return byScope;
+}
+
+// Find a maximum-weight order-preserving alignment between parallel groups. Shared structural
+// calls are the primary score. Compatible evidence breaks ties, and can select the right one of
+// two otherwise identical surplus groups. The sparse Fenwick-tree alignment only creates edges
+// for group pairs that share a structural key.
+function alignedGroupScopes(expected, actual, expectedVersion, actualVersion) {
+  const expectedBuckets = scopeBuckets(expected);
+  const actualBuckets = scopeBuckets(actual);
+  const expectedGroups = [...expectedBuckets.values()];
+  const actualGroups = [...actualBuckets.values()];
+  const actualByKey = new Map();
+  actualGroups.forEach((byKey, scope) => {
+    for (const [key, indexes] of byKey) {
+      if (!actualByKey.has(key)) actualByKey.set(key, []);
+      actualByKey.get(key).push({ scope, count: indexes.length });
+    }
+  });
+
+  const scale = Math.min(expected.length, actual.length) + 1;
+  const nodes = [];
+  const tree = new Int32Array(actualGroups.length + 1);
+  tree.fill(-1);
+  const scoreOf = (nodeIndex) => nodeIndex < 0 ? 0 : nodes[nodeIndex].score;
+  const query = (count) => {
+    let best = -1;
+    for (let p = count; p > 0; p -= p & -p) {
+      if (scoreOf(tree[p]) > scoreOf(best)) best = tree[p];
+    }
+    return best;
+  };
+  const update = (position, nodeIndex) => {
+    for (let p = position; p < tree.length; p += p & -p) {
+      if (scoreOf(nodeIndex) > scoreOf(tree[p])) tree[p] = nodeIndex;
+    }
+  };
+
+  expectedGroups.forEach((expectedByKey, expectedScope) => {
+    const overlapByActual = new Map();
+    for (const [key, expectedIndexes] of expectedByKey) {
+      for (const candidate of actualByKey.get(key) ?? []) {
+        const overlap = Math.min(expectedIndexes.length, candidate.count);
+        overlapByActual.set(candidate.scope, (overlapByActual.get(candidate.scope) ?? 0) + overlap);
+      }
+    }
+    const pending = [];
+    for (const [actualScope, overlap] of [...overlapByActual].sort((a, b) => a[0] - b[0])) {
+      const expectedSlots = [...expectedByKey.values()].flat().map((i) => expected[i]);
+      const actualSlots = [...actualGroups[actualScope].values()].flat().map((i) => actual[i]);
+      const evidenceMatches = maximumCompatiblePairs(
+        expectedSlots, actualSlots, expectedVersion, actualVersion,
+      ).length;
+      const previous = query(actualScope);
+      nodes.push({
+        expectedScope,
+        actualScope,
+        previous,
+        score: scoreOf(previous) + overlap * scale + evidenceMatches,
+      });
+      pending.push(nodes.length - 1);
+    }
+    // Delay updates until the whole expected group is evaluated, so it cannot pair twice.
+    for (const nodeIndex of pending) update(nodes[nodeIndex].actualScope + 1, nodeIndex);
+  });
+
+  const pairs = [];
+  for (let nodeIndex = query(actualGroups.length); nodeIndex >= 0; nodeIndex = nodes[nodeIndex].previous) {
+    pairs.push(nodes[nodeIndex]);
+  }
+  return pairs.reverse();
+}
+
 // Calls with the same structural key are indistinguishable under groups/any ordering. Reorder all
 // candidates before structural alignment so compatible evidence is paired even when an equivalent
-// call becomes an allowed extra or missing call. Each parallel group is its own pairing scope.
+// call becomes an allowed extra or missing call. Parallel calls only pair inside aligned groups.
 function pairEquivalentOutcomes(expected, actual, cfg, expectedVersion, actualVersion) {
   if (cfg.order === 'strict') return;
-  const buckets = (slots) => {
-    const byScope = new Map();
-    slots.forEach((slot, index) => {
-      if (!byScope.has(slot.scope)) byScope.set(slot.scope, new Map());
-      const byKey = byScope.get(slot.scope);
-      if (!byKey.has(slot.key)) byKey.set(slot.key, []);
-      byKey.get(slot.key).push(index);
-    });
-    return byScope;
-  };
-  const expectedBuckets = buckets(expected);
-  const actualBuckets = buckets(actual);
+  const expectedBuckets = scopeBuckets(expected);
+  const actualBuckets = scopeBuckets(actual);
+  const scopePairs = cfg.order === 'any'
+    ? [{ expectedScope: 0, actualScope: 0 }]
+    : alignedGroupScopes(expected, actual, expectedVersion, actualVersion);
 
-  for (const [scope, expectedByKey] of expectedBuckets) {
-    const actualByKey = actualBuckets.get(scope);
-    if (!actualByKey) continue;
+  const expectedPair = new Map(scopePairs.map((pair, i) => [pair.expectedScope, i]));
+  const actualPair = new Map(scopePairs.map((pair, i) => [pair.actualScope, i]));
+  for (const slot of expected) {
+    const pair = expectedPair.get(slot.scope);
+    slot.alignKey = `${pair === undefined ? `expected:${slot.scope}` : `pair:${pair}`}\0${slot.key}`;
+  }
+  for (const slot of actual) {
+    const pair = actualPair.get(slot.scope);
+    slot.alignKey = `${pair === undefined ? `actual:${slot.scope}` : `pair:${pair}`}\0${slot.key}`;
+  }
+
+  for (const { expectedScope, actualScope } of scopePairs) {
+    const expectedByKey = expectedBuckets.get(expectedScope);
+    const actualByKey = actualBuckets.get(actualScope);
+    if (!expectedByKey || !actualByKey) continue;
     for (const [key, expectedIndexes] of expectedByKey) {
       const actualIndexes = actualByKey.get(key);
       if (!actualIndexes) continue;
       const expectedSlots = expectedIndexes.map((i) => expected[i]);
       const actualSlots = actualIndexes.map((i) => actual[i]);
-      const compatible = expectedSlots.map((e) => actualSlots
-        .map((a, ai) => compareOutcome(e, a, expectedVersion, actualVersion).length === 0 ? ai : -1)
-        .filter((ai) => ai >= 0));
-      const actualToExpected = new Array(actualSlots.length).fill(-1);
-
-      const assign = (ei, seen) => {
-        for (const ai of compatible[ei]) {
-          if (seen.has(ai)) continue;
-          seen.add(ai);
-          if (actualToExpected[ai] === -1 || assign(actualToExpected[ai], seen)) {
-            actualToExpected[ai] = ei;
-            return true;
-          }
-        }
-        return false;
-      };
-      for (let ei = 0; ei < expectedSlots.length; ei++) assign(ei, new Set());
-
-      const pairs = actualToExpected
-        .map((ei, ai) => ({ ei, ai }))
-        .filter(({ ei }) => ei >= 0)
-        .sort((x, y) => x.ei - y.ei);
+      const pairs = maximumCompatiblePairs(
+        expectedSlots, actualSlots, expectedVersion, actualVersion,
+      );
       const pairedExpected = new Set(pairs.map(({ ei }) => ei));
       const pairedActual = new Set(pairs.map(({ ai }) => ai));
       const orderedExpected = [

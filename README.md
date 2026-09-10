@@ -55,7 +55,7 @@ than described.
 
 <!-- generated:begin -->
 
-**122 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
+**127 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
 
 | case | `strict` | `default` | `loose` | should be |
 |---|---|---|---|---|
@@ -302,7 +302,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    zero declared dependencies
 
 3. unit suite
-  ok    122 tests passed
+  ok    127 tests passed
 
 4. the fixture matrix, both failure modes on real fixture pairs
     case                       strict   default  loose    should be
@@ -329,12 +329,12 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 6. an independent re-derivation of structural and outcome fixtures, in Python, sharing no code with src/
     independently recomputed 21 matrix cells across 7 fixture pairs
     independently classified 4 outcome assertion fixtures
-    independently counted 122 passing tests from the TAP stream
+    independently counted 127 passing tests from the TAP stream
     INDEPENDENT CHECK OK
   ok    the independent implementation agrees on every structural cell and outcome fixture
 
 6b. the independent checker really is independent
-    112 substantive lines in the checker, 668 in src/, 0 identical
+    112 substantive lines in the checker, 682 in src/, 0 identical
   ok    different language, its own verdict functions, and no source line copied from src/
 
 7. real Claude Code transcripts
@@ -364,7 +364,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    the matcher behaves correctly on real recorded agent runs
 
 8. the CLI is usable end to end on a real transcript
-    9174 tool calls in 8663 batches, 4164 prose blocks, 0 unparseable lines -> /tmp/tmp.jDCD0RmnAq/real.trace.json
+    9174 tool calls in 8663 batches, 4164 prose blocks, 0 unparseable lines -> /tmp/tmp.jyfbV8kMRK/real.trace.json
   ok    extracted 9174 tool calls and the trace matches itself under the strictest preset
 
 9. the fixtures on disk are the ones the generator produces

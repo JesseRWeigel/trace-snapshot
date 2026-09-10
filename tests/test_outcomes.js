@@ -84,6 +84,48 @@ test('order-free pairing finds compatible actual evidence for expected subsets',
   assert.equal(matchTrace(actual, expected, { outcomes: 'assert' }).pass, true);
 });
 
+for (const order of ['groups', 'any']) {
+  test(`${order} outcome pairing can leave an incompatible duplicate as an allowed extra`, () => {
+    const expected = makeTrace({ steps: [
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+    ] });
+    const actual = makeTrace({ steps: [
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+    ] });
+    const allowed = matchTrace(actual, expected, { outcomes: 'assert', order, extra: 'allow' });
+    assert.equal(allowed.pass, true);
+    assert.equal(allowed.summary.extra, 1);
+    assert.equal(allowed.summary.outcomeProblems, 0);
+
+    const rejected = matchTrace(actual, expected, { outcomes: 'assert', order, extra: 'fail' });
+    assert.equal(rejected.pass, false);
+    assert.deepEqual(rejected.problems.map((p) => p.kind), ['extra']);
+    assert.equal(rejected.summary.extra, 1);
+    assert.equal(rejected.summary.outcomeProblems, 0);
+  });
+
+  test(`${order} outcome pairing can leave an incompatible duplicate as an allowed missing call`, () => {
+    const expected = makeTrace({ steps: [
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 0 },
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+    ] });
+    const actual = makeTrace({ steps: [
+      { group: 0, tool: 'Bash', args: { command: 'probe' }, ok: true, exitCode: 1 },
+    ] });
+    const allowed = matchTrace(actual, expected, { outcomes: 'assert', order, missing: 'allow' });
+    assert.equal(allowed.pass, true);
+    assert.equal(allowed.summary.missing, 1);
+    assert.equal(allowed.summary.outcomeProblems, 0);
+
+    const rejected = matchTrace(actual, expected, { outcomes: 'assert', order, missing: 'fail' });
+    assert.equal(rejected.pass, false);
+    assert.deepEqual(rejected.problems.map((p) => p.kind), ['missing']);
+    assert.equal(rejected.summary.missing, 1);
+    assert.equal(rejected.summary.outcomeProblems, 0);
+  });
+}
+
 test('artifact evidence missing from a run is unavailable, distinct from exists false', () => {
   const expected = T('Write', { file_path: 'report.md' }, {
     ok: true,
@@ -94,6 +136,23 @@ test('artifact evidence missing from a run is unavailable, distinct from exists 
   assert.equal(result.pass, false);
   assert.equal(result.problems[0].kind, 'outcome-unavailable');
   assert.match(result.problems[0].message, /artifact.*actual.*unavailable/i);
+});
+
+test('missing artifact evidence reports every artifact requested by the snapshot', () => {
+  const expected = T('Write', { file_path: 'report.md' }, {
+    ok: true,
+    artifacts: [
+      { path: 'report.md', exists: true },
+      { path: 'report.sha256', exists: true, sha256: 'a'.repeat(64) },
+    ],
+  });
+  const actual = T('Write', { file_path: 'report.md' }, { ok: true });
+  const result = matchTrace(actual, expected, { outcomes: 'assert' });
+  assert.equal(result.pass, false);
+  assert.deepEqual(result.problems.map((p) => p.kind), [
+    'outcome-unavailable', 'outcome-unavailable',
+  ]);
+  assert.deepEqual(result.problems.map((p) => p.path), ['report.md', 'report.sha256']);
 });
 
 test('an expected absent artifact passes when the run records exists false', () => {

@@ -111,11 +111,11 @@ function slotSequence(trace, cfg, normalisers, keepKeysByTool) {
     return a.evidenceKey < b.evidenceKey ? -1 : a.evidenceKey > b.evidenceKey ? 1 : 0;
   };
   if (cfg.order === 'strict') return keyed;
-  if (cfg.order === 'any') return [...keyed].sort(compare);
+  if (cfg.order === 'any') return [...keyed].sort(compare).map((slot) => ({ ...slot, scope: 0 }));
   // groups: sort inside each parallel batch only
   const out = [];
-  for (const g of groupsOf(trace)) {
-    const inGroup = g.map((s) => keyed[s.i]);
+  for (const [scope, g] of groupsOf(trace).entries()) {
+    const inGroup = g.map((s) => ({ ...keyed[s.i], scope }));
     inGroup.sort(compare);
     out.push(...inGroup);
   }
@@ -240,8 +240,7 @@ function compareOutcome(e, a, expectedVersion, actualVersion) {
   }
   if (e.step.artifacts !== undefined) {
     if (a.step.artifacts === undefined) {
-      const artifact = e.step.artifacts[0];
-      if (artifact) {
+      for (const artifact of e.step.artifacts) {
         problems.push(evidenceProblem(
           'outcome-unavailable', e, a,
           `artifact ${JSON.stringify(artifact.path)} actual evidence is unavailable; expected a recorded artifact, actual unavailable`,
@@ -289,36 +288,36 @@ function compareOutcome(e, a, expectedVersion, actualVersion) {
   return problems;
 }
 
-// Calls with the same structural key are indistinguishable under groups/any ordering. Pair those
-// calls by compatible recorded evidence so an expected subset (for example, one of two identical
-// commands asserting an exit code) is not compared with the wrong actual call. This is a maximum
-// bipartite matching over zero-problem pairs; unmatched calls retain a stable order for diagnostics.
-function pairEquivalentOutcomes(ops, cfg, expectedVersion, actualVersion) {
+// Calls with the same structural key are indistinguishable under groups/any ordering. Reorder all
+// candidates before structural alignment so compatible evidence is paired even when an equivalent
+// call becomes an allowed extra or missing call. Each parallel group is its own pairing scope.
+function pairEquivalentOutcomes(expected, actual, cfg, expectedVersion, actualVersion) {
   if (cfg.order === 'strict') return;
-  let start = 0;
-  while (start < ops.length) {
-    const first = ops[start];
-    if (first.op !== 'equal') {
-      start += 1;
-      continue;
-    }
-    let end = start + 1;
-    while (end < ops.length) {
-      const next = ops[end];
-      if (next.op !== 'equal' || next.e.key !== first.e.key) break;
-      if (cfg.order === 'groups' && (
-        next.e.step.group !== first.e.step.group || next.a.step.group !== first.a.step.group
-      )) break;
-      end += 1;
-    }
+  const buckets = (slots) => {
+    const byScope = new Map();
+    slots.forEach((slot, index) => {
+      if (!byScope.has(slot.scope)) byScope.set(slot.scope, new Map());
+      const byKey = byScope.get(slot.scope);
+      if (!byKey.has(slot.key)) byKey.set(slot.key, []);
+      byKey.get(slot.key).push(index);
+    });
+    return byScope;
+  };
+  const expectedBuckets = buckets(expected);
+  const actualBuckets = buckets(actual);
 
-    if (end - start > 1) {
-      const block = ops.slice(start, end);
-      const actual = block.map((o) => o.a);
-      const compatible = block.map((o) => actual
-        .map((a, ai) => compareOutcome(o.e, a, expectedVersion, actualVersion).length === 0 ? ai : -1)
+  for (const [scope, expectedByKey] of expectedBuckets) {
+    const actualByKey = actualBuckets.get(scope);
+    if (!actualByKey) continue;
+    for (const [key, expectedIndexes] of expectedByKey) {
+      const actualIndexes = actualByKey.get(key);
+      if (!actualIndexes) continue;
+      const expectedSlots = expectedIndexes.map((i) => expected[i]);
+      const actualSlots = actualIndexes.map((i) => actual[i]);
+      const compatible = expectedSlots.map((e) => actualSlots
+        .map((a, ai) => compareOutcome(e, a, expectedVersion, actualVersion).length === 0 ? ai : -1)
         .filter((ai) => ai >= 0));
-      const actualToExpected = new Array(block.length).fill(-1);
+      const actualToExpected = new Array(actualSlots.length).fill(-1);
 
       const assign = (ei, seen) => {
         for (const ai of compatible[ei]) {
@@ -331,20 +330,25 @@ function pairEquivalentOutcomes(ops, cfg, expectedVersion, actualVersion) {
         }
         return false;
       };
-      for (let ei = 0; ei < block.length; ei++) assign(ei, new Set());
+      for (let ei = 0; ei < expectedSlots.length; ei++) assign(ei, new Set());
 
-      const expectedToActual = new Array(block.length).fill(-1);
-      actualToExpected.forEach((ei, ai) => {
-        if (ei >= 0) expectedToActual[ei] = ai;
-      });
-      const unused = actual.map((_, ai) => ai).filter((ai) => actualToExpected[ai] === -1);
-      let ui = 0;
-      for (let ei = 0; ei < block.length; ei++) {
-        const ai = expectedToActual[ei] >= 0 ? expectedToActual[ei] : unused[ui++];
-        ops[start + ei].a = actual[ai];
-      }
+      const pairs = actualToExpected
+        .map((ei, ai) => ({ ei, ai }))
+        .filter(({ ei }) => ei >= 0)
+        .sort((x, y) => x.ei - y.ei);
+      const pairedExpected = new Set(pairs.map(({ ei }) => ei));
+      const pairedActual = new Set(pairs.map(({ ai }) => ai));
+      const orderedExpected = [
+        ...pairs.map(({ ei }) => expectedSlots[ei]),
+        ...expectedSlots.filter((_, ei) => !pairedExpected.has(ei)),
+      ];
+      const orderedActual = [
+        ...pairs.map(({ ai }) => actualSlots[ai]),
+        ...actualSlots.filter((_, ai) => !pairedActual.has(ai)),
+      ];
+      expectedIndexes.forEach((index, i) => { expected[index] = orderedExpected[i]; });
+      actualIndexes.forEach((index, i) => { actual[index] = orderedActual[i]; });
     }
-    start = end;
   }
 }
 
@@ -373,10 +377,10 @@ export function matchTrace(actual, expected, configInput = {}) {
 
   const es = slotSequence(expected, cfg, normalisers, null);
   const as = slotSequence(actual, cfg, normalisers, keepKeysByTool);
-  let ops = align(es, as);
   if (cfg.outcomes === 'assert') {
-    pairEquivalentOutcomes(ops, cfg, expected.version, actual.version);
+    pairEquivalentOutcomes(es, as, cfg, expected.version, actual.version);
   }
+  let ops = align(es, as);
 
   // A delete immediately followed by an insert of the same tool is an argument change, not a
   // pair of unrelated structural edits. Reporting it as a change is the difference between

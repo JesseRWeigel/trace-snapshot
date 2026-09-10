@@ -121,10 +121,10 @@ else
 fi
 
 echo
-echo "6. an independent re-derivation, in Python, sharing no code with src/"
+echo "6. an independent re-derivation of structural and outcome fixtures, in Python, sharing no code with src/"
 if python3 scripts/check_independent.py >"$work/indep.txt" 2>&1; then
   sed 's/^/    /' "$work/indep.txt"
-  ok "the independent implementation agrees on every cell"
+  ok "the independent implementation agrees on every structural cell and outcome fixture"
 else
   sed 's/^/    /' "$work/indep.txt"
   bad "the independent implementation disagrees with src/match.js"
@@ -150,7 +150,7 @@ for line in src.splitlines():
         problems.append(f"it imports project code: {line.strip()!r}")
 if "subprocess" not in src:
     problems.append("it does not run the implementation as a subprocess, so it may be a copy")
-for fn in ("def verdict", "def sequence", "def canon", "def key_of"):
+for fn in ("def verdict", "def sequence", "def canon", "def key_of", "def outcome_verdict"):
     if fn not in src:
         problems.append(f"it has no {fn} of its own")
 if "src/match.js says" not in src:

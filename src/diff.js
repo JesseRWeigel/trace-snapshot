@@ -33,7 +33,7 @@ export function renderDiff(result, opts = {}) {
   if (result.pass) {
     lines.push(
       c.bold('trace matches') +
-        `  ${summary.equal} calls aligned, order=${config.order} args=${config.args}`,
+        `  ${summary.equal} calls aligned, order=${config.order} args=${config.args} outcomes=${config.outcomes}`,
     );
     return lines.join('\n');
   }
@@ -42,7 +42,7 @@ export function renderDiff(result, opts = {}) {
   lines.push(
     c.bold('trace diverged') +
       `  ${problems.length} problem${problems.length === 1 ? '' : 's'}` +
-      `  (order=${config.order} args=${config.args} extra=${config.extra} missing=${config.missing})`,
+      `  (order=${config.order} args=${config.args} outcomes=${config.outcomes} extra=${config.extra} missing=${config.missing})`,
   );
   lines.push(`  first divergence: ${first.message}`);
   lines.push(
@@ -60,7 +60,7 @@ export function renderDiff(result, opts = {}) {
   lines.push('');
 
   // Only print equal runs near a divergence, so a 400-call trace stays readable.
-  const interesting = result.ops.map((o) => o.op !== 'equal');
+  const interesting = result.ops.map((o) => o.op !== 'equal' || (o.outcomeProblems?.length ?? 0) > 0);
   const show = result.ops.map((_, i) =>
     interesting.slice(Math.max(0, i - context), i + context + 1).some(Boolean),
   );
@@ -77,7 +77,12 @@ export function renderDiff(result, opts = {}) {
     }
     if (o.op === 'equal') {
       const s = o.e.step;
-      lines.push(c.dim(`${MARK.equal}[${s.i}] ${s.tool} ${argSummary(s.args)}`));
+      if (o.outcomeProblems?.length) {
+        lines.push(c.bold(`${MARK.change}[${s.i}] ${s.tool}  outcome assertions differ`));
+        for (const p of o.outcomeProblems) lines.push(c.red(`      ${p.message}`));
+      } else {
+        lines.push(c.dim(`${MARK.equal}[${s.i}] ${s.tool} ${argSummary(s.args)}`));
+      }
     } else if (o.op === 'change') {
       lines.push(c.bold(`${MARK.change}[${o.e.step.i}] ${o.e.step.tool}  arguments differ`));
       for (const d of o.args) {

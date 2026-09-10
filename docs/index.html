@@ -178,7 +178,8 @@
   &quot;argRules&quot;: [],
   &quot;extra&quot;: &quot;fail&quot;,
   &quot;missing&quot;: &quot;fail&quot;,
-  &quot;allowExtraKeys&quot;: false
+  &quot;allowExtraKeys&quot;: false,
+  &quot;outcomes&quot;: &quot;ignore&quot;
 }</code></pre>
   </article>
   <article class="preset default">
@@ -191,7 +192,8 @@
   &quot;argRules&quot;: [],
   &quot;extra&quot;: &quot;fail&quot;,
   &quot;missing&quot;: &quot;fail&quot;,
-  &quot;allowExtraKeys&quot;: false
+  &quot;allowExtraKeys&quot;: false,
+  &quot;outcomes&quot;: &quot;ignore&quot;
 }</code></pre>
   </article>
   <article class="preset loose">
@@ -204,7 +206,8 @@
   &quot;argRules&quot;: [],
   &quot;extra&quot;: &quot;allow&quot;,
   &quot;missing&quot;: &quot;allow&quot;,
-  &quot;allowExtraKeys&quot;: true
+  &quot;allowExtraKeys&quot;: true,
+  &quot;outcomes&quot;: &quot;ignore&quot;
 }</code></pre>
   </article></div>
 
@@ -263,9 +266,9 @@
 
 <h2>What a divergence looks like</h2>
 <p>The same rerun, under <code>default</code>. It changed the order of three parallel reads and all of the prose:</p>
-<pre><code>trace matches  7 calls aligned, order=groups args=normalised</code></pre>
+<pre><code>trace matches  7 calls aligned, order=groups args=normalised outcomes=ignore</code></pre>
 <p>Under <code>strict</code>, the same rerun:</p>
-<pre><code>trace diverged  1 problem  (order=strict args=exact extra=fail missing=fail)
+<pre><code>trace diverged  1 problem  (order=strict args=exact outcomes=ignore extra=fail missing=fail)
   first divergence: Read moved relative to the snapshot
   6 matched, 0 changed, 0 missing, 0 extra, 1 moved  (snapshot 7 calls, run 7)
 
@@ -280,7 +283,7 @@
 
   prose was not compared. Set UPDATE_TRACE_SNAPSHOTS=1 to accept this run.</code></pre>
 <p>And a real regression under <code>default</code>, an agent that read a report before running the command that writes it:</p>
-<pre><code>trace diverged  1 problem  (order=groups args=normalised extra=fail missing=fail)
+<pre><code>trace diverged  1 problem  (order=groups args=normalised outcomes=ignore extra=fail missing=fail)
   first divergence: Bash moved relative to the snapshot
   6 matched, 0 changed, 0 missing, 0 extra, 1 moved  (snapshot 7 calls, run 7)
   calls are listed in batch order, sorted inside each batch, which is the order this preset compares

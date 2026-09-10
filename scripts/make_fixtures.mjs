@@ -34,6 +34,7 @@ const proseB = [
 /** The baseline run. Groups are parallel batches: one model turn each. */
 function baseline() {
   return makeTrace({
+    version: 1,
     source: 'fixture',
     name: 'strict-mode-audit',
     prose: proseA,
@@ -117,8 +118,49 @@ function proseInsideAnArgument() {
 }
 
 function renumber(t) {
-  return makeTrace({ source: t.source, name: t.name, prose: t.prose, steps: t.steps });
+  return makeTrace({ version: t.version, source: t.source, name: t.name, prose: t.prose, steps: t.steps });
 }
+
+const OUTCOME_CASES = [
+  {
+    name: 'successful-versus-failed-tool',
+    tool: 'Fetch',
+    args: { url: 'https://example.invalid/data' },
+    expected: { ok: true },
+    actual: { ok: false },
+    problem: 'outcome',
+  },
+  {
+    name: 'nonzero-command-exit',
+    tool: 'Bash',
+    args: { command: 'npm test' },
+    expected: { ok: true, exitCode: 0 },
+    actual: { ok: true, exitCode: 1 },
+    problem: 'exit-code',
+  },
+  {
+    name: 'missing-write',
+    tool: 'Write',
+    args: { file_path: 'report.md' },
+    expected: { ok: true, artifacts: [{ path: 'report.md', exists: true }] },
+    actual: { ok: true, artifacts: [{ path: 'report.md', exists: false }] },
+    problem: 'artifact-existence',
+  },
+  {
+    name: 'wrong-artifact-hash',
+    tool: 'Write',
+    args: { file_path: 'report.md' },
+    expected: {
+      ok: true,
+      artifacts: [{ path: 'report.md', exists: true, sha256: 'a'.repeat(64) }],
+    },
+    actual: {
+      ok: true,
+      artifacts: [{ path: 'report.md', exists: true, sha256: 'b'.repeat(64) }],
+    },
+    problem: 'artifact-hash',
+  },
+];
 
 const CASES = [
   {
@@ -191,4 +233,5 @@ fs.writeFileSync(
     2,
   ) + '\n',
 );
+fs.writeFileSync(path.join(FIX, 'outcome-cases.json'), `${JSON.stringify({ cases: OUTCOME_CASES }, null, 2)}\n`);
 process.stdout.write(`wrote ${CASES.length} fixture pairs to ${path.relative(ROOT, FIX) || '.'}\n`);

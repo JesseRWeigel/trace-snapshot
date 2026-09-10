@@ -1,4 +1,4 @@
-export { makeTrace, parseTrace, serialiseTrace, canonicalJson, groupsOf, TRACE_VERSION, TraceError } from './trace.js';
+export { makeTrace, parseTrace, serialiseTrace, canonicalJson, groupsOf, TRACE_VERSION, LEGACY_TRACE_VERSION, TraceError } from './trace.js';
 export { matchTrace, stepKey, comparableArgs } from './match.js';
 export { renderDiff } from './diff.js';
 export { toMatchAgentTrace, traceMatchers } from './matcher.js';

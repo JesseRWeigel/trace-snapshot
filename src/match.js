@@ -102,14 +102,21 @@ function slotSequence(trace, cfg, normalisers, keepKeysByTool) {
   const keyed = trace.steps.map((s) => ({
     step: s,
     key: stepKey(s, cfg, normalisers, keepKeysByTool ? keepKeysByTool.get(s.tool) ?? new Set() : null),
+    evidenceKey: cfg.outcomes === 'assert'
+      ? canonicalJson({ ok: s.ok, exitCode: s.exitCode, artifacts: s.artifacts })
+      : '',
   }));
+  const compare = (a, b) => {
+    if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+    return a.evidenceKey < b.evidenceKey ? -1 : a.evidenceKey > b.evidenceKey ? 1 : 0;
+  };
   if (cfg.order === 'strict') return keyed;
-  if (cfg.order === 'any') return [...keyed].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  if (cfg.order === 'any') return [...keyed].sort(compare);
   // groups: sort inside each parallel batch only
   const out = [];
   for (const g of groupsOf(trace)) {
     const inGroup = g.map((s) => keyed[s.i]);
-    inGroup.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    inGroup.sort(compare);
     out.push(...inGroup);
   }
   return out;
@@ -164,6 +171,183 @@ function argDiff(e, a, cfg, normalisers) {
   return diffs;
 }
 
+function evidenceProblem(kind, e, a, message, expected, actual, extra = {}) {
+  return {
+    kind,
+    tool: e.step.tool,
+    expectedIndex: e.step.i,
+    actualIndex: a.step.i,
+    expected,
+    actual,
+    message: `step ${e.step.i} (${e.step.tool}): ${message}`,
+    ...extra,
+  };
+}
+
+function compareOutcome(e, a, expectedVersion, actualVersion) {
+  if (expectedVersion < 2) {
+    return [evidenceProblem(
+      'outcome-unavailable', e, a,
+      `snapshot outcome evidence is unavailable in legacy trace version ${expectedVersion}; expected recorded evidence, actual trace version ${actualVersion}`,
+      'recorded outcome evidence', `trace version ${actualVersion}`,
+    )];
+  }
+  if (actualVersion < 2) {
+    return [evidenceProblem(
+      'outcome-unavailable', e, a,
+      `actual outcome evidence is unavailable in legacy trace version ${actualVersion}; expected trace version ${expectedVersion}, actual legacy trace version ${actualVersion}`,
+      `trace version ${expectedVersion}`, `legacy trace version ${actualVersion}`,
+    )];
+  }
+  const problems = [];
+  if (e.step.ok === undefined) {
+    problems.push(evidenceProblem(
+      'outcome-unavailable', e, a,
+      'snapshot completion status is unavailable; expected an explicit boolean, actual cannot be asserted',
+      'boolean completion status', a.step.ok,
+    ));
+    return problems;
+  }
+  if (a.step.ok === undefined) {
+    problems.push(evidenceProblem(
+      'outcome-unavailable', e, a,
+      `actual completion status is unavailable; expected ok=${e.step.ok}, actual unavailable`,
+      e.step.ok, 'unavailable',
+    ));
+    return problems;
+  }
+  if (e.step.ok !== a.step.ok) {
+    problems.push(evidenceProblem(
+      'outcome', e, a,
+      `completion status differs: expected ok=${e.step.ok}, actual ok=${a.step.ok}`,
+      e.step.ok, a.step.ok,
+    ));
+  }
+  if (e.step.exitCode !== undefined) {
+    if (a.step.exitCode === undefined) {
+      problems.push(evidenceProblem(
+        'outcome-unavailable', e, a,
+        `command exit code is unavailable: expected ${e.step.exitCode}, actual unavailable`,
+        e.step.exitCode, 'unavailable', { field: 'exitCode' },
+      ));
+    } else if (e.step.exitCode !== a.step.exitCode) {
+      problems.push(evidenceProblem(
+        'exit-code', e, a,
+        `command exit code differs: expected ${e.step.exitCode}, actual ${a.step.exitCode}`,
+        e.step.exitCode, a.step.exitCode, { field: 'exitCode' },
+      ));
+    }
+  }
+  if (e.step.artifacts !== undefined) {
+    if (a.step.artifacts === undefined) {
+      const artifact = e.step.artifacts[0];
+      if (artifact) {
+        problems.push(evidenceProblem(
+          'outcome-unavailable', e, a,
+          `artifact ${JSON.stringify(artifact.path)} actual evidence is unavailable; expected a recorded artifact, actual unavailable`,
+          artifact, 'unavailable', { field: 'artifacts', path: artifact.path },
+        ));
+      }
+      return problems;
+    }
+    const actualByPath = new Map(a.step.artifacts.map((artifact) => [artifact.path, artifact]));
+    for (const expectedArtifact of e.step.artifacts) {
+      const actualArtifact = actualByPath.get(expectedArtifact.path);
+      if (!actualArtifact) {
+        problems.push(evidenceProblem(
+          'outcome-unavailable', e, a,
+          `artifact ${JSON.stringify(expectedArtifact.path)} actual evidence is unavailable; expected a recorded artifact, actual unavailable`,
+          expectedArtifact, 'unavailable', { field: 'artifacts', path: expectedArtifact.path },
+        ));
+        continue;
+      }
+      if (expectedArtifact.exists !== actualArtifact.exists) {
+        problems.push(evidenceProblem(
+          'artifact-existence', e, a,
+          `artifact ${JSON.stringify(expectedArtifact.path)} existence differs: expected ${expectedArtifact.exists}, actual ${actualArtifact.exists}`,
+          expectedArtifact.exists, actualArtifact.exists, { field: 'exists', path: expectedArtifact.path },
+        ));
+        continue;
+      }
+      if (expectedArtifact.sha256 !== undefined) {
+        if (actualArtifact.sha256 === undefined) {
+          problems.push(evidenceProblem(
+            'outcome-unavailable', e, a,
+            `artifact ${JSON.stringify(expectedArtifact.path)} hash is unavailable: expected ${expectedArtifact.sha256}, actual unavailable`,
+            expectedArtifact.sha256, 'unavailable', { field: 'sha256', path: expectedArtifact.path },
+          ));
+        } else if (expectedArtifact.sha256 !== actualArtifact.sha256) {
+          problems.push(evidenceProblem(
+            'artifact-hash', e, a,
+            `artifact ${JSON.stringify(expectedArtifact.path)} hash differs: expected ${expectedArtifact.sha256}, actual ${actualArtifact.sha256}`,
+            expectedArtifact.sha256, actualArtifact.sha256, { field: 'sha256', path: expectedArtifact.path },
+          ));
+        }
+      }
+    }
+  }
+  return problems;
+}
+
+// Calls with the same structural key are indistinguishable under groups/any ordering. Pair those
+// calls by compatible recorded evidence so an expected subset (for example, one of two identical
+// commands asserting an exit code) is not compared with the wrong actual call. This is a maximum
+// bipartite matching over zero-problem pairs; unmatched calls retain a stable order for diagnostics.
+function pairEquivalentOutcomes(ops, cfg, expectedVersion, actualVersion) {
+  if (cfg.order === 'strict') return;
+  let start = 0;
+  while (start < ops.length) {
+    const first = ops[start];
+    if (first.op !== 'equal') {
+      start += 1;
+      continue;
+    }
+    let end = start + 1;
+    while (end < ops.length) {
+      const next = ops[end];
+      if (next.op !== 'equal' || next.e.key !== first.e.key) break;
+      if (cfg.order === 'groups' && (
+        next.e.step.group !== first.e.step.group || next.a.step.group !== first.a.step.group
+      )) break;
+      end += 1;
+    }
+
+    if (end - start > 1) {
+      const block = ops.slice(start, end);
+      const actual = block.map((o) => o.a);
+      const compatible = block.map((o) => actual
+        .map((a, ai) => compareOutcome(o.e, a, expectedVersion, actualVersion).length === 0 ? ai : -1)
+        .filter((ai) => ai >= 0));
+      const actualToExpected = new Array(block.length).fill(-1);
+
+      const assign = (ei, seen) => {
+        for (const ai of compatible[ei]) {
+          if (seen.has(ai)) continue;
+          seen.add(ai);
+          if (actualToExpected[ai] === -1 || assign(actualToExpected[ai], seen)) {
+            actualToExpected[ai] = ei;
+            return true;
+          }
+        }
+        return false;
+      };
+      for (let ei = 0; ei < block.length; ei++) assign(ei, new Set());
+
+      const expectedToActual = new Array(block.length).fill(-1);
+      actualToExpected.forEach((ei, ai) => {
+        if (ei >= 0) expectedToActual[ei] = ai;
+      });
+      const unused = actual.map((_, ai) => ai).filter((ai) => actualToExpected[ai] === -1);
+      let ui = 0;
+      for (let ei = 0; ei < block.length; ei++) {
+        const ai = expectedToActual[ei] >= 0 ? expectedToActual[ei] : unused[ui++];
+        ops[start + ei].a = actual[ai];
+      }
+    }
+    start = end;
+  }
+}
+
 /**
  * Compare a recorded run against a snapshot.
  * @param {import('./trace.js').Trace} actual
@@ -190,6 +374,9 @@ export function matchTrace(actual, expected, configInput = {}) {
   const es = slotSequence(expected, cfg, normalisers, null);
   const as = slotSequence(actual, cfg, normalisers, keepKeysByTool);
   let ops = align(es, as);
+  if (cfg.outcomes === 'assert') {
+    pairEquivalentOutcomes(ops, cfg, expected.version, actual.version);
+  }
 
   // A delete immediately followed by an insert of the same tool is an argument change, not a
   // pair of unrelated structural edits. Reporting it as a change is the difference between
@@ -270,6 +457,10 @@ export function matchTrace(actual, expected, configInput = {}) {
         message: `${o.a.step.tool} was called and is not in the snapshot`,
       });
     }
+    if (o.op === 'equal' && cfg.outcomes === 'assert') {
+      o.outcomeProblems = compareOutcome(o.e, o.a, expected.version, actual.version);
+      problems.push(...o.outcomeProblems);
+    }
   }
 
   const summary = {
@@ -280,6 +471,7 @@ export function matchTrace(actual, expected, configInput = {}) {
     moved: ops.filter((o) => o.moved && o.op === 'delete').length,
     expectedSteps: expected.steps.length,
     actualSteps: actual.steps.length,
+    outcomeProblems: problems.filter((p) => p.kind.startsWith('outcome') || p.kind.startsWith('exit-') || p.kind.startsWith('artifact-')).length,
   };
 
   return { pass: problems.length === 0, config: cfg, ops, problems, summary };

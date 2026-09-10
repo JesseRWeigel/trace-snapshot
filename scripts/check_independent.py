@@ -11,8 +11,8 @@ It also re-parses the TAP stream from `node --test` and counts the passing tests
 than trusting the runner's own summary line, because the README quotes that number.
 
 Usage:  python3 scripts/check_independent.py [--json]
-Exit 0 when every independently computed verdict agrees with fixtures/cases.json AND with the
-JavaScript implementation's own reported matrix.
+Exit 0 when every independently computed verdict agrees with the declared structural and outcome
+fixtures and with the JavaScript implementation's reported results.
 """
 
 import json
@@ -20,6 +20,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
@@ -110,6 +111,66 @@ def check_matrix():
     return problems, {"cells": cells, "cases": len(spec["cases"]), "presets": len(presets)}
 
 
+def outcome_verdict(run, snapshot):
+    """Independently classify the first expected outcome mismatch for one aligned call."""
+    if snapshot.get("ok") != run.get("ok"):
+        return "outcome"
+    if "exitCode" in snapshot and snapshot["exitCode"] != run.get("exitCode"):
+        return "exit-code"
+    actual_artifacts = {a["path"]: a for a in run.get("artifacts", [])}
+    for expected in snapshot.get("artifacts", []):
+        actual = actual_artifacts.get(expected["path"])
+        if actual is None:
+            return "outcome-unavailable"
+        if expected["exists"] != actual["exists"]:
+            return "artifact-existence"
+        if "sha256" in expected and expected["sha256"].lower() != actual.get("sha256", "").lower():
+            return "artifact-hash"
+    return "pass"
+
+
+def check_outcomes():
+    spec = load(FIXTURES / "outcome-cases.json")
+    problems = []
+    observed_phrases = {
+        "outcome": "completion status differs",
+        "exit-code": "command exit code differs",
+        "artifact-existence": "existence differs",
+        "artifact-hash": "hash differs",
+    }
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        config = root / "config.json"
+        config.write_text(json.dumps({"outcomes": "assert"}))
+        for case in spec["cases"]:
+            mine = outcome_verdict(case["actual"], case["expected"])
+            declared = case["problem"]
+            if mine != declared:
+                problems.append(
+                    f"{case['name']}: independent outcome {mine}, fixture declares {declared}"
+                )
+            def trace(evidence):
+                return {"version": 2, "source": "independent-check", "steps": [{
+                    "i": 0, "group": 0, "tool": case["tool"], "args": case["args"], **evidence,
+                }], "prose": []}
+            expected_file = root / "expected.json"
+            actual_file = root / "actual.json"
+            expected_file.write_text(json.dumps(trace(case["expected"])))
+            actual_file.write_text(json.dumps(trace(case["actual"])))
+            js = subprocess.run(
+                [_node(), str(ROOT / "src" / "cli.js"), "match", str(actual_file),
+                 str(expected_file), "--config", str(config), "--no-colour"],
+                capture_output=True, text=True, cwd=ROOT,
+            )
+            phrase = observed_phrases[declared]
+            if js.returncode != 1 or phrase not in js.stdout:
+                problems.append(
+                    f"{case['name']}: src/match.js did not report {declared}; "
+                    f"exit {js.returncode}, output {js.stdout[:160]!r}"
+                )
+    return problems, {"outcomeCases": len(spec["cases"])}
+
+
 def check_loose_is_vacuous():
     """The claim 'the loose preset cannot fail' is checked, not asserted.
 
@@ -169,16 +230,20 @@ def main():
     problems = []
     m_problems, stats = check_matrix()
     problems += m_problems
+    o_problems, outcome_stats = check_outcomes()
+    problems += o_problems
     problems += check_loose_is_vacuous()
     tests, t_problems = count_tap_tests()
     problems += t_problems
 
     out = {"cells": stats.get("cells", 0), "cases": stats.get("cases", 0),
+           "outcomeCases": outcome_stats.get("outcomeCases", 0),
            "tests": tests, "problems": problems}
     if "--json" in sys.argv:
         print(json.dumps(out, indent=2))
     else:
         print(f"independently recomputed {out['cells']} matrix cells across {out['cases']} fixture pairs")
+        print(f"independently classified {out['outcomeCases']} outcome assertion fixtures")
         print(f"independently counted {tests} passing tests from the TAP stream")
         for p in problems:
             print(f"  FAIL  {p}")

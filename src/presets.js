@@ -22,6 +22,7 @@ import { DEFAULT_NORMALISERS } from './normalise.js';
  * @property {'fail'|'allow'} extra     tool calls present in the run but not in the snapshot
  * @property {'fail'|'allow'} missing   tool calls in the snapshot the run did not make
  * @property {boolean} allowExtraKeys   tolerate argument keys the snapshot does not mention
+ * @property {'ignore'|'assert'} outcomes compare recorded outcome evidence on aligned calls
  */
 
 /**
@@ -46,6 +47,7 @@ export const PRESETS = {
     extra: 'fail',
     missing: 'fail',
     allowExtraKeys: false,
+    outcomes: 'ignore',
   },
 
   // The recommendation: preserve argument values while tolerating order within parallel batches.
@@ -57,6 +59,7 @@ export const PRESETS = {
     extra: 'fail',
     missing: 'fail',
     allowExtraKeys: false,
+    outcomes: 'ignore',
   },
 
   // Tool names only, unordered, missing calls tolerated. This is what a snapshot degrades into
@@ -70,6 +73,7 @@ export const PRESETS = {
     extra: 'allow',
     missing: 'allow',
     allowExtraKeys: true,
+    outcomes: 'ignore',
   },
 };
 
@@ -99,6 +103,7 @@ export function resolveConfig(input = {}) {
   oneOf('args', ['exact', 'normalised', 'ignore']);
   oneOf('extra', ['fail', 'allow']);
   oneOf('missing', ['fail', 'allow']);
+  oneOf('outcomes', ['ignore', 'assert']);
   if (typeof cfg.allowExtraKeys !== 'boolean') throw new ConfigError('config.allowExtraKeys must be boolean');
   if (!Array.isArray(cfg.normalisers)) throw new ConfigError('config.normalisers must be an array');
   if (!Array.isArray(cfg.argRules)) throw new ConfigError('config.argRules must be an array');

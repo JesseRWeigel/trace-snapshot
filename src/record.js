@@ -28,8 +28,15 @@ export function createRecorder({ source = 'live', name } = {}) {
   const prose = [];
   let group = 0;
 
-  const record = (tool, args, ok = true) => {
-    steps.push({ group, tool, args: args ?? {}, ok });
+  const record = (tool, args, ok = true, evidence = {}) => {
+    steps.push({
+      group,
+      tool,
+      args: args ?? {},
+      ok,
+      ...(evidence.exitCode === undefined ? {} : { exitCode: evidence.exitCode }),
+      ...(evidence.artifacts === undefined ? {} : { artifacts: evidence.artifacts }),
+    });
   };
 
   return {

@@ -8,7 +8,8 @@
 
 Snapshot testing for agent tool-call traces. A `toMatchAgentTrace` matcher for Vitest and Jest
 that asserts on the **shape** of an agent run, which tools were called, in what order, with what
-arguments, and ignores the model's prose entirely.
+arguments, and ignores the model's prose entirely. Version 2 traces can also assert recorded
+completion status, command exit codes and artifact evidence.
 
 Zero runtime dependencies. Node 20 or later.
 
@@ -54,7 +55,7 @@ than described.
 
 <!-- generated:begin -->
 
-**104 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
+**122 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
 
 | case | `strict` | `default` | `loose` | should be |
 |---|---|---|---|---|
@@ -165,6 +166,59 @@ Three entry points, all producing the same trace format:
 A tool call that threw is still recorded, with `ok: false`, because losing it would make the
 trace lie about what the agent attempted.
 
+## Outcome and artifact assertions
+
+Call-shape comparison remains the default. The three presets set `outcomes: 'ignore'`, so existing
+tests keep comparing tool names, arguments and ordering even when version 2 traces contain outcome
+evidence.
+
+Set `outcomes: 'assert'` when completion and produced artifacts are part of the snapshot contract:
+
+```js
+rec.record('Bash', { command: 'npm test' }, true, {
+  exitCode: 0,
+  artifacts: [{
+    path: 'dist/report.json',
+    exists: true,
+    sha256: '63217a52b733e04f7da5a79e9feeb3bbd34f84fca05b511628ca9f065d11c20c',
+  }],
+});
+
+expect(rec.trace()).toMatchAgentTrace('build-report', {
+  outcomes: 'assert',
+});
+```
+
+In assertion mode, every aligned step needs a boolean `ok` in both traces. A different value fails
+the comparison, and missing evidence is reported as unavailable. An expected `exitCode` is compared
+exactly, including an intentional non-zero exit paired with `ok: false`. Expected artifacts are
+matched by path. Their `exists` value is compared exactly, so `exists: false` records an assertion
+that a path is absent. A snapshot hash requires a recorded hash on the actual trace and the two
+SHA-256 values must match. Hex digits may use either case when recorded and are stored lowercase.
+
+Artifact entries are recorded evidence. The matcher does not read the filesystem. Recorders and
+adapters must supply the path, existence value and optional hash from the tool result they observed.
+Duplicate artifact paths, non-boolean status or existence values, non-integer exit codes, invalid
+SHA-256 values, and hashes attached to `exists: false` are rejected while loading the trace.
+
+Version 1 and versionless legacy traces still load and compare structurally. Assertion mode reports
+their outcome evidence as unavailable. It does not infer success from a legacy trace.
+
+For CLI comparison, put the mode in a config file:
+
+```json
+{
+  "outcomes": "assert"
+}
+```
+
+```bash
+node src/cli.js match actual.trace.json expected.trace.json --config outcome-config.json
+```
+
+The diff header prints `outcomes=assert` or `outcomes=ignore`, so test output shows which contract
+was applied.
+
 ## Run it
 
 ```bash
@@ -248,7 +302,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    zero declared dependencies
 
 3. unit suite
-  ok    104 tests passed
+  ok    122 tests passed
 
 4. the fixture matrix, both failure modes on real fixture pairs
     case                       strict   default  loose    should be
@@ -272,22 +326,23 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 5. negative control: a corrupted fixture must make check 4 fail
   ok    a corrupted fixture is caught: 1 cell(s) disagree
 
-6. an independent re-derivation, in Python, sharing no code with src/
+6. an independent re-derivation of structural and outcome fixtures, in Python, sharing no code with src/
     independently recomputed 21 matrix cells across 7 fixture pairs
-    independently counted 104 passing tests from the TAP stream
+    independently classified 4 outcome assertion fixtures
+    independently counted 122 passing tests from the TAP stream
     INDEPENDENT CHECK OK
-  ok    the independent implementation agrees on every cell
+  ok    the independent implementation agrees on every structural cell and outcome fixture
 
 6b. the independent checker really is independent
-    76 substantive lines in the checker, 547 in src/, 0 identical
+    112 substantive lines in the checker, 668 in src/, 0 identical
   ok    different language, its own verdict functions, and no source line copied from src/
 
 7. real Claude Code transcripts
       ok    every temp name the benign mutation can generate normalises to <tmpdir>
-    corpus: 1587 session files under ~/.claude/projects, 12 with at least 12 tool calls examined
-            19115 real tool calls, 18016 batches, 929 of them holding more than one call, 9044 prose blocks, 0 unparseable lines
+    corpus: 1671 session files under ~/.claude/projects, 12 with at least 12 tool calls examined
+            19889 real tool calls, 18776 batches, 943 of them holding more than one call, 9642 prose blocks, 0 unparseable lines
     
-    benign mutation rewrote 19254 volatile values and reversed 929 parallel batches
+    benign mutation rewrote 20229 volatile values and reversed 943 parallel batches
       ok    12/12 sessions: explicit broad normalisers tolerate the rewrite
       ok    12/12 rewritten sessions: safe default preserves argument values
       ok    12/12 sessions: strict preset rejects it, so the mutation was real
@@ -295,13 +350,13 @@ elided at the marked line because each is 15 lines of probe diff; everything els
       note  the loose preset passed 12/12 of those same dropped-call runs
       ok    12/12 sessions: changing one real argument value is caught
     
-    normaliser hits across 47468 real argument leaf values:
-      home-path              8105  17.07%
-      tmp-path               4182  8.81%
-      uuid                   2376  5.01%
-      ephemeral-port          290  0.61%
-      time-valued-number      135  0.28%
-      iso-timestamp            89  0.19%
+    normaliser hits across 49431 real argument leaf values:
+      home-path              8791  17.78%
+      tmp-path               4332  8.76%
+      uuid                   2380  4.81%
+      ephemeral-port          296  0.60%
+      time-valued-number      135  0.27%
+      iso-timestamp            91  0.18%
       hex-digest               18  0.04%
       epoch-millis              0  0.00%
     
@@ -309,15 +364,15 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    the matcher behaves correctly on real recorded agent runs
 
 8. the CLI is usable end to end on a real transcript
-    8400 tool calls in 7903 batches, 3566 prose blocks, 0 unparseable lines -> /tmp/tmp.usesNXd78x/real.trace.json
-  ok    extracted 8400 tool calls and the trace matches itself under the strictest preset
+    9174 tool calls in 8663 batches, 4164 prose blocks, 0 unparseable lines -> /tmp/tmp.jDCD0RmnAq/real.trace.json
+  ok    extracted 9174 tool calls and the trace matches itself under the strictest preset
 
 9. the fixtures on disk are the ones the generator produces
   ok    committed fixtures match scripts/make_fixtures.mjs
 
 10. docs/index.html is current and self-contained
-  ok    docs/index.html is current (19238 bytes)
-    19238 bytes, 2 tables, 8 code blocks
+  ok    docs/index.html is current (19418 bytes)
+    19418 bytes, 2 tables, 8 code blocks
   ok    doctype, charset, viewport, both dark-mode mechanisms, no remote assets, no home paths
 
 11. the page in a real browser
@@ -341,7 +396,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
   ok    an overflowing element, an unparseable script, and a runtime exception are all caught
 
 13. nothing private or oversized is committed
-    43 tracked files, largest 20496 bytes
+    45 tracked files, largest 22856 bytes
   ok    no home path, no credential-shaped strings, no NUL bytes, nothing over 1 MB
 
 13b. the secret scan can actually see a NUL-containing file
@@ -361,7 +416,7 @@ elided at the marked line because each is 15 lines of probe diff; everything els
 
 15. the README describes this repository as it is now
   ok    README.md generated block is current (2930 chars)
-    README is 20494 characters and claims 20 checks
+    README is 22854 characters and claims 20 checks
   ok    the README has a Status section whose pasted output matches this run
 
 20 passed, 0 failed

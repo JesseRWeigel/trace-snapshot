@@ -14,6 +14,10 @@ import { makeTrace } from './trace.js';
 
 export class RecordError extends Error {}
 
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 /**
  * A recorder for a live run.
  *
@@ -101,10 +105,12 @@ export function fromAiSdkResult(result, { name } = {}) {
   const steps = [];
   const prose = [];
   result.steps.forEach((s, gi) => {
+    if (!isRecord(s)) throw new RecordError(`step ${gi}: expected an object`);
     if (typeof s.text === 'string' && s.text.trim()) prose.push(s.text);
     const calls = s.toolCalls ?? [];
     if (!Array.isArray(calls)) throw new RecordError(`step ${gi}: toolCalls is not an array`);
-    for (const c of calls) {
+    for (const [ci, c] of calls.entries()) {
+      if (!isRecord(c)) throw new RecordError(`step ${gi}: tool call ${ci} is not an object`);
       const tool = c.toolName ?? c.name;
       if (typeof tool !== 'string') throw new RecordError(`step ${gi}: tool call has no toolName`);
       const args = c.input ?? c.args ?? {};
@@ -138,6 +144,10 @@ export function fromClaudeTranscript(text, { name, includeSidechains = false } =
     try {
       rec = JSON.parse(line);
     } catch {
+      malformed++;
+      continue;
+    }
+    if (!isRecord(rec)) {
       malformed++;
       continue;
     }

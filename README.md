@@ -55,7 +55,7 @@ than described.
 
 <!-- generated:begin -->
 
-**131 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
+**133 tests**, **7 fixture pairs** (2 that must be tolerated, 5 that must fail) run against **3 presets** = **21 matrix cells**, all of them re-derived independently by `scripts/check_independent.py`. The fixture traces hold 49 recorded tool calls. **0 normalisers** are on by default and **12** are available and off.
 
 | case | `strict` | `default` | `loose` | should be |
 |---|---|---|---|---|

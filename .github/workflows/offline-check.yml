@@ -1,0 +1,28 @@
+name: Offline check
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify units, fixtures, and independently checked verdicts
+        run: |
+          npm test
+          node src/cli.js matrix
+          python3 scripts/check_independent.py
+          node scripts/build_page.mjs --check
+          python3 scripts/gen_readme.py --check

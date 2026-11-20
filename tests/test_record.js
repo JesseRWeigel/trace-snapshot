@@ -165,3 +165,27 @@ test('an empty transcript yields an empty trace rather than throwing', () => {
   assert.equal(t.steps.length, 0);
   assert.equal(t.malformedLines, 0);
 });
+
+test('Claude transcript counts non-record JSON without dropping good calls or splitting batches', () => {
+  const t = fromClaudeTranscript(
+    asst('r1', [use('Read', { file_path: 'a' })]) +
+    'null\n[]\n42\n"not a record"\n\n' +
+    line({ type: 'system', subtype: 'api_error' }) +
+    asst('r1', [use('Read', { file_path: 'b' })]) +
+    asst('r2', [use('Write', { file_path: 'c' })]),
+  );
+  assert.equal(t.malformedLines, 4);
+  assert.deepEqual(t.steps.map((s) => s.args.file_path), ['a', 'b', 'c']);
+  assert.deepEqual(groupsOf(t).map((g) => g.length), [2, 1]);
+});
+
+test('AI SDK reports malformed step and tool-call envelopes as RecordError', () => {
+  for (const bad of [null, false, []]) {
+    assert.throws(() => fromAiSdkResult({ steps: [bad] }), {
+      constructor: RecordError, message: /^step 0: expected an object$/,
+    });
+    assert.throws(() => fromAiSdkResult({ steps: [{ toolCalls: [bad] }] }), {
+      constructor: RecordError, message: /^step 0: tool call 0 is not an object$/,
+    });
+  }
+});
